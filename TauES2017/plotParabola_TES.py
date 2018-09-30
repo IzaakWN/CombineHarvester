@@ -52,13 +52,15 @@ varshorttitle = { 'm_2':   "m_{#tau}",
 
 def plotParabola(channel,var,DM,**kwargs):
     if DM=='DM0' and 'm_2' in var: return
-    print green("\n>>> plot parabola for %s, %s"%(DM, var))
+    print green("plot parabola for %s, %s"%(DM, var),pre="\n>>> ")
     
-    tag       = kwargs.get('tag',       ""        )
-    plotlabel = kwargs.get('plotlabel', ""        )
-    MDFslices = kwargs.get('MDFslices', None      )
-    breakdown = kwargs.get('breakdown', False     )
-    fit       = kwargs.get('fit',       args.fit  ) and not breakdown
+    tag        = kwargs.get('tag',         ""          )
+    plotlabel  = kwargs.get('plotlabel',   ""          )
+    MDFslices  = kwargs.get('MDFslices',   None        )
+    breakdown  = kwargs.get('breakdown',   False       )
+    asymmetric = kwargs.get('asymmetric',  args.asymm  )
+    fit        = kwargs.get('fit',         False       ) and not breakdown
+    ctext      = kwargs.get('ctext',       [ ]         )
     
     results      = [ ]
     results_up   = [ ]
@@ -80,9 +82,11 @@ def plotParabola(channel,var,DM,**kwargs):
       for event in tree:
         if tree.quantileExpected<0: continue
         if tree.deltaNLL == 0: continue
-        if any(getattr(tree,t)!=v for t,v in MDFslices.iteritems()): continue
+        if any(abs(getattr(tree,t)-v)>0.000001 for t,v in MDFslices.iteritems()): continue
         list_tes.append(getattr(tree,tes))
         list_nll.append(2*tree.deltaNLL)
+      list_nll = [n for _,n in sorted(zip(list_tes,list_nll), key=lambda p: p[0])]
+      list_tes.sort()
     else:
       for event in tree:
         if tree.quantileExpected<0: continue
@@ -154,11 +158,11 @@ def plotParabola(channel,var,DM,**kwargs):
     canvas.SetLeftMargin( 0.12 ); canvas.SetRightMargin(  0.04 )
     canvas.cd()
     
-    xmin, xmax   = 0.89, 1.14
-    ymin, ymax   = 0.0,  16.
+    xmin, xmax   = 0.945, 1.08
+    ymin, ymax   = 0.0,  10.
     fontsize     = 0.044
     lineheight   = 0.05
-    xtext, ytext = 0.91, 0.38
+    xtext, ytext = 0.91, 0.405
     frame = canvas.DrawFrame(xmin,ymin,xmax,ymax)
     frame.GetYaxis().SetTitleSize(0.055)
     frame.GetXaxis().SetTitleSize(0.055)
@@ -167,6 +171,7 @@ def plotParabola(channel,var,DM,**kwargs):
     frame.GetXaxis().SetLabelOffset(0.010)
     frame.GetXaxis().SetTitleOffset(1.04)
     frame.GetYaxis().SetTitleOffset(1.02)
+    frame.GetXaxis().SetNdivisions(508)
     frame.GetXaxis().SetTitle('tau energy scale')
     frame.GetYaxis().SetTitle('-2#Deltaln(L)')
     
@@ -178,7 +183,7 @@ def plotParabola(channel,var,DM,**kwargs):
     # FIT
     para, graph_clone, tesf, tes_errDown2, tes_errUp2 = None, None, None, None, None
     if fit:
-      para = fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_dnll_right)
+      para = fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_dnll_right,asymmetric=asymmetric)
       fit = graph.Fit("fit",'R0')
       para.SetRange(xmin,xmax)
       #print para.GetXmin(),para.GetXmax()
@@ -186,10 +191,16 @@ def plotParabola(channel,var,DM,**kwargs):
       #para = para.Clone("fit_clone")
       para.Draw("SAME")
       gStyle.SetOptFit(0)
-      tesf         = para.GetParameter(1)
-      tes_errUp2   = round( sqrt( 1./(1000.*para.GetParameter(0)) )*10000)/10000 # TODO: propagate fit uncertainties with GetParError(i) !
-      tes_errDown2 = round( sqrt( 1./(1000.*para.GetParameter(0)) )*10000)/10000
+      tesf = para.GetParameter(1)
+      if asymmetric:
+        yline = 1+para.GetParameter(2)
+        tes_errUp2   = tesf-para.GetX(yline,tesf-0.02,tesf)
+        tes_errDown2 = para.GetX(yline,tesf,tesf+0.02)-tesf
+      else:
+        tes_errUp2   = round( sqrt( 1./(1000.*para.GetParameter(0)) )*10000)/10000 # TODO: propagate fit uncertainties with GetParError(i) !
+        tes_errDown2 = round( sqrt( 1./(1000.*para.GetParameter(0)) )*10000)/10000        
     
+    # RESULTS
     latex = TLatex()
     lines = [ ]
     for i,y in [(1,1),(2,4)]:
@@ -209,6 +220,7 @@ def plotParabola(channel,var,DM,**kwargs):
       line.Draw("SAME")
       lines.append(line)
     
+    # LEGEND
     legend = None
     if breakdown:
       height = 3*fontsize
@@ -223,21 +235,22 @@ def plotParabola(channel,var,DM,**kwargs):
         legend.AddEntry(graphf,graphf.GetTitle(),'lp')
       legend.AddEntry(graph,"syst. incl.",'lp')
       legend.Draw()
+    if ctext:
+      ctext = writeText(ctext,position='topright',textsize=0.80*fontsize)
     
     print ">>> tes SF %7.3f - %-5.3f + %-5.3f"%(tes,tes_errDown,tes_errUp)
-    print ">>> shift  %7.3f - %-5.2f + %-5.2f %%"%(shift,tes_errDown*100,tes_errUp*100)
+    print ">>> shift  %7.3f - %-5.3f + %-5.3f %%"%(shift,tes_errDown*100,tes_errUp*100)
     if fit:
       print ">>> tes SF %7.3f - %-5.3f + %-5.3f   (parabola)"%(tesf,tes_errDown2,tes_errUp2)
-      print ">>> shift  %7.3f - %-5.2f + %-5.2f %% (parabola)"%(tesf-1,tes_errDown2*100,tes_errUp2*100)
+      print ">>> shift  %7.3f - %-5.3f + %-5.3f %% (parabola)"%(tesf-1,tes_errDown2*100,tes_errUp2*100)
     
     text = TLatex()
     text.SetTextSize(fontsize)
     text.SetTextAlign(31)
     text.SetTextFont(42)
     text.SetNDC(True)
-    text.DrawLatex(xtext,ytext,                varlabel[var])
-    text.DrawLatex(xtext,ytext-lineheight,     "%s"%DM_label[DM])
-    
+    text.DrawLatex(xtext,ytext,                "%s"%(varlabel[var]))
+    text.DrawLatex(xtext,ytext-lineheight,     "%s"%(DM_label[DM]))
     text.DrawLatex(xtext,ytext-2.2*lineheight, "%7.3f_{-%5.3f}^{+%5.3f}"%(tes,tes_errDown,tes_errUp))
     if fit:
       text.SetTextColor(kRed)
@@ -256,7 +269,7 @@ def plotParabola(channel,var,DM,**kwargs):
     
     if breakdown: tag += "_breakdown"
     if MDFslices: tag += "_MDF"
-    if fit:       tag += "_fit"
+    if fit:       tag += "_fit_asymm" if asymmetric else "_fit"
     canvasname = "%s/parabola_tes_%s_%s-%s%s"%(PLOTS_DIR,channel,var,DM,tag)
     canvas.SaveAs(canvasname+".png")
     canvas.SaveAs(canvasname+".pdf")
@@ -265,58 +278,11 @@ def plotParabola(channel,var,DM,**kwargs):
     return tes, tes_errDown, tes_errUp, tesf, tes_errDown2, tes_errUp2
     
 
-def createParabolaFromLists(list_tes,list_dnll,fit=False):
-    """Create TGraph of DeltaNLL parabola vs. tes from lists."""
-    npoints = len(list_dnll)
-    if not fit: return TGraph(npoints, array('d',list_tes), array('d',list_dnll))
-    graph  = TGraphAsymmErrors()
-    for i, (tes,dnll) in enumerate(zip(list_tes,list_dnll)):
-      error = 1.0
-      if dnll<6 and i>0 and i+1<npoints:
-        left, right = list_dnll[i-1], list_dnll[i+1]
-        error       = max(0.1,(abs(dnll-left)+abs(right-dnll))/2)
-      graph.SetPoint(i,tes,dnll)
-      graph.SetPointError(i,0.0,0.0,error,error)
-    return graph
     
-def createParabola(filename):
-    """Create TGraph of DeltaNLL parabola vs. tes from MultiDimFit file."""
-    file = ensureTFile(filename)
-    tree = file.Get('limit')
-    tes, nll = [ ], [ ]
-    for event in tree:
-      tes.append(tree.tes)
-      nll.append(2*tree.deltaNLL)
-    file.Close()
-    minnll = min(nll)
-    mintes = tes[nll.index(minnll)]
-    dnll   = map(lambda x: x-minnll, nll) # DeltaNLL
-    graph  = TGraph(len(tes), array('d',tes), array('d',dnll))
-    return graph, mintes
-
-def findMultiDimSlices(channel,var,**kwargs):
-    """Find minimum of multidimensional parabola in MultiDimFit file and return
-    dictionary of the corresponding values of POI's."""
-    tag      = kwargs.get('tag', "" )
-    filename = '%s/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(DIR,channel,var,'MDF',tag)
-    file     = ensureTFile(filename)
-    tree     = file.Get('limit')
-    pois     = [b.GetName() for b in tree.GetListOfBranches() if 'tes_DM' in b.GetName()]
-    slices   = { }
-    nnlmin   = 10e10
-    for event in tree:
-      nnl = 2*event.deltaNLL
-      if nnl<nnlmin:
-        nnlmin = nnl
-        for poi in pois:
-          slices[poi] = getattr(event,poi)
-        #print nnlmin, slices
-    file.Close()
-    #print nnlmin, slices
-    return nnlmin, slices
+def plotParabolaMDF(channel,var,**kwargs):
+    """Plot multidimensional parabola."""
+    print green("plot multidimensional parabola for %s"%(var),pre="\n>>> ")
     
-def plotParabola2D(channel,var,**kwargs):
-    """Plot 2D parabola."""
     tag        = kwargs.get('tag',        ""  )
     nnlmin     = kwargs.get('nnlmin',     0   )
     MDFslices  = kwargs.get('MDFslices', { }  )
@@ -337,12 +303,20 @@ def plotParabola2D(channel,var,**kwargs):
       graph = TGraph2D()
       graph.SetTitle(ztitle)
       #tree.Draw("%s:%s:deltaNLL >> graph"%(poi1,poi2),"","COLZ")
-      for i, event in enumerate(tree):
+      slices = { t:v for t,v in MDFslices.iteritems() if t!=poi1 and t!=poi2 }
+      #print nnlmin, slices
+      i = 0
+      for event in tree:
+        if event.quantileExpected<0: continue
+        if any(abs(getattr(event,t)-v)>0.000001 for t,v in slices.iteritems()): continue
         nnl  = 2*event.deltaNLL-nnlmin
         xpoi = getattr(event,poi1)
         ypoi = getattr(event,poi2)
         graph.SetPoint(i,xpoi,ypoi,nnl)
-    
+        #for t in slices:
+        #  print "%9s %14.12f, %9s %14.12f, %9s %14.12f, %16.12f"%(t, getattr(event,t), poi1, xpoi, poi2, ypoi, nnl)
+        i += 1
+      
       latex = TLatex()
       latex.SetTextSize(0.040)
       latex.SetTextFont(42)
@@ -355,7 +329,7 @@ def plotParabola2D(channel,var,**kwargs):
         line = TLine(pmin,MDFslices[poi2],pmax,MDFslices[poi2])
         x, y = pmin+0.003, MDFslices[poi2]+0.001
         lines.append((line,"%s = %.3f"%(poi2,MDFslices[poi2]),x,y,11))
-    
+      
       canvas = TCanvas("canvas","canvas",100,100,800,600)
       canvas.SetFillColor(0)
       canvas.SetBorderMode(0)
@@ -366,7 +340,7 @@ def plotParabola2D(channel,var,**kwargs):
       canvas.cd()
       canvas.SetLogz()
       #canvas.SetTheta(90.); pad.SetPhi(0.001)
-    
+      
       frame = canvas.DrawFrame(pmin,pmin,pmax,pmax)
       frame.GetXaxis().SetTitle(re.sub(r"_(DM\d+)",r"_{\1}",poi1))
       frame.GetYaxis().SetTitle(re.sub(r"_(DM\d+)",r"_{\1}",poi2))
@@ -387,7 +361,7 @@ def plotParabola2D(channel,var,**kwargs):
         #print "here"
         #levels = [0.01,1,10,100,1000]
         #frame.SetContour(len(levels),array('d',levels))
-    
+      
       graph.SetMinimum(0.5)
       graph.SetMaximum(100)
       graph.Draw('COLZ SAME')
@@ -397,25 +371,25 @@ def plotParabola2D(channel,var,**kwargs):
         line.Draw('SAME')
         latex.SetTextAlign(align)
         latex.DrawLatex(x,y,re.sub(r"_(DM\d+)",r"_{\1}",poi))
-    
+      
       latex.SetTextAlign(33)
       latex.SetTextSize(0.055)
       latex.SetTextAngle(90)
       latex.DrawLatex(pmax+0.19*(pmax-pmin),pmax,ztitle)
-    
+      
       CMS_lumi.relPosX = 0.14
       CMS_lumi.CMS_lumi(canvas,13,0)
       gPad.Modified()
       gPad.Update()
       gPad.RedrawAxis()
-    
+      
       canvas.SaveAs(canvasname+'.png')
       canvas.SaveAs(canvasname+'.pdf')
-    
+      canvas.Close()
     
 
 
-def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_dnll_right):
+def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_dnll_right,asymmetric=False):
     
     # FIT X RANGE (<ymax)
     xmin_fit = xmin
@@ -453,31 +427,108 @@ def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_d
     wmin, wval, wmax = wmin_fit*0.99, wmin_fit, wmax_fit*1.50
     bmin, bval, bmax = tmin_fit, tes, tmax_fit
     cmin, cval, cmax = -0.0001, 0.0, 0.5 #max(min(ymax_fit,3),0.001)
+    amin, aval, amax = -1000, 0.0, 1000
     
     if bmin<xmin_fit: print ">>> Warning! setting bmin=%.3f -> %.3f=xmin_fit"%(bmin,xmin_fit); bmin = xmin_fit
     if bmax>xmax_fit: print ">>> Warning! setting bmin=%.3f -> %.3f=xmin_fit"%(bmax,xmax_fit); bmax = xmax_fit
     if bval<bmin or bmax<bval: print ">>> Warning! setting bval=%.3f -> %.3f=bmin+(bmin-bmax)/2"%(bval,(bmax+bmin)/2.); bval = (bmax+bmin)/2.
     if cval<cmin or cmax<cval: print ">>> Warning! setting cval=%.3f -> %.3f=cmin+(cmin-cmax)/2"%(cval,(cmax+cmin)/2.); cval = (cmax+cmin)/2.
-    print ">>> width   = %5s [%5s, %5s]"%(wval, wmin, wmax)
-    print ">>> tes     = %5s [%5s, %5s]"%(bval, bmin, bmax)
-    print ">>> voffset = %5s [%5s, %5s]"%(cval, cmin, cmax)
+    print ">>> width   = %5s [%5s, %5s]"%(wval,wmin,wmax)
+    print ">>> tes     = %5s [%5s, %5s]"%(bval,bmin,bmax)
+    print ">>> yoffset = %5s [%5s, %5s]"%(cval,cmin,cmax)
+    if asymmetric:
+      print ">>> w_asymm = %5s [%5s, %5s]"%(aval, amin, amax)
     
     # FIT FUNCTION
-    #xmin_fit, xmax_fit = 0.91, 1.05
-    para = TF1("fit","[0]*1000*(x-[1])**2+[2]",xmin_fit,xmax_fit)
-    print xmin_fit, para.GetXmin()
-    print xmax_fit, para.GetXmax()
+    if asymmetric:
+      #para = TF1("fit","[0]*1000*(x-[1])**2+[3]*10000*(x-[1])**3+[2]",xmin_fit,xmax_fit)
+      para = TF1("fit",asymmParabola,xmin_fit,xmax_fit,4)
+    else:
+      para = TF1("fit","[0]*1000*(x-[1])**2+[2]",xmin_fit,xmax_fit)
     para.SetParName(0,"width")
     para.SetParName(1,"tes")
-    para.SetParName(2,"voffset")
+    para.SetParName(2,"yoffset")
+    if asymmetric:
+      #para.SetParName(3,"w_asymm")
+      para.SetParName(3,"width_left")
     #para.FixParameter(0,0)
     #para.FixParameter(2,0)
-    para.SetParameters(wval,bval,0)
+    if asymmetric:
+      #para.SetParameters(wval,bval,0,0)
+      para.SetParameters(wval,bval,0,wval)
+    else:
+      para.SetParameters(wval,bval,0)
     para.SetParLimits(0,wmin,wmax)
     para.SetParLimits(1,bmin,bmax)
     para.SetParLimits(2,cmin,cmax)
+    if asymmetric:
+      #para.SetParLimits(3,amin,amax)
+      para.SetParLimits(3,wmin,wmax)
     
     return para
+    
+def asymmParabola(x,par):
+    """
+    f(x) = [0]*1000*(x-[1])**2+[2]  if x < [1]
+    f(x) = [3]*1000*(x-[1])**2+[2]  if x > [1]
+    """
+    if x[0]>par[1]:
+      return par[0]*1000*(x[0]-par[1])**2+par[2]
+    else:
+      return par[3]*1000*(x[0]-par[1])**2+par[2]
+    
+
+
+def createParabolaFromLists(list_tes,list_dnll,fit=False):
+    """Create TGraph of DeltaNLL parabola vs. tes from lists."""
+    npoints = len(list_dnll)
+    if not fit: return TGraph(npoints, array('d',list_tes), array('d',list_dnll))
+    graph  = TGraphAsymmErrors()
+    for i, (tes,dnll) in enumerate(zip(list_tes,list_dnll)):
+      error = 1.0
+      if dnll<6 and i>0 and i+1<npoints:
+        left, right = list_dnll[i-1], list_dnll[i+1]
+        error       = max(0.1,(abs(dnll-left)+abs(right-dnll))/2)
+      graph.SetPoint(i,tes,dnll)
+      graph.SetPointError(i,0.0,0.0,error,error)
+    return graph
+    
+def createParabola(filename):
+    """Create TGraph of DeltaNLL parabola vs. tes from MultiDimFit file."""
+    file = ensureTFile(filename)
+    tree = file.Get('limit')
+    tes, nll = [ ], [ ]
+    for event in tree:
+      tes.append(tree.tes)
+      nll.append(2*tree.deltaNLL)
+    file.Close()
+    minnll = min(nll)
+    mintes = tes[nll.index(minnll)]
+    dnll   = map(lambda x: x-minnll, nll) # DeltaNLL
+    graph  = TGraph(len(tes), array('d',tes), array('d',dnll))
+    return graph, mintes
+    
+def findMultiDimSlices(channel,var,**kwargs):
+    """Find minimum of multidimensional parabola in MultiDimFit file and return
+    dictionary of the corresponding values of POI's."""
+    tag      = kwargs.get('tag', "" )
+    filename = '%s/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(DIR,channel,var,'MDF',tag)
+    file     = ensureTFile(filename)
+    tree     = file.Get('limit')
+    pois     = [b.GetName() for b in tree.GetListOfBranches() if 'tes_DM' in b.GetName()]
+    slices   = { }
+    nnlmin   = 10e10
+    for event in tree:
+      nnl = 2*event.deltaNLL
+      if nnl<nnlmin:
+        nnlmin = nnl
+        for poi in pois:
+          slices[poi] = getattr(event,poi)
+        #print nnlmin, slices
+    file.Close()
+    #print nnlmin, slices
+    return nnlmin, slices
+    
 
 
 def measureTES(filename, unc=False):
@@ -523,31 +574,52 @@ def measureTES(filename, unc=False):
     return tesmin
     
 
-
 def plotMeasurements(categories,measurements,**kwargs):
-    """Plot measurements."""
-    print green("plotMeasurements()",pre=">>>\n>>> ")
+    """Plot measurements. in this format:
+         cats = [ "cat1",              "cat2"              "cat3"            ]
+         meas = [(0.976,0.004,0.004), (0.982,0.006,0.002),(0.992,0.002,0.008)]
+       or with pairs of measurements:
+         cats = [ "cat1",              "cat2"              "cat3"            ]
+         meas = [[(0.996,0.004,0.002),(0.982,0.006,0.002)],
+                 [ None,              (0.976,0.004,0.004)],
+                 [(1.010,0.010,0.004),(0.992,0.002,0.008)]]
+         ents = [ "m_tau", "m_vis" ]
+    """
     
     npoints      = len(measurements)
     categories   = categories[::-1]
     measurements = measurements[::-1]
     minB         = 0.13
-    title        = kwargs.get('title',      ""                   )
-    text         = kwargs.get('text',       ""                   )
-    entries      = kwargs.get('entries',    ""                   )
-    plottag      = kwargs.get('tag',        ""                   )
-    xtitle       = kwargs.get('xtitle',     ""                   )
-    xminu        = kwargs.get('xmin',       None                 )
-    xmaxu        = kwargs.get('xmax',       None                 )
-    position     = kwargs.get('position',   ""                   ).lower() # legend
-    align        = kwargs.get('align',      "center"             ).lower() # category labels
-    canvasH      = kwargs.get('H',          min(400,120+90*npoints) )
-    canvasL      = kwargs.get('L',          0.20                 )
-    canvasB      = kwargs.get('B',          minB                 )
-    canvasname   = kwargs.get('canvas',     "measurements"       )
+    colors       = [ kBlack, kBlue, kRed, kOrange, kGreen, kMagenta ]
+    title        = kwargs.get('title',       ""                   )
+    text         = kwargs.get('text',        ""                   )
+    ctext        = kwargs.get('ctext',       ""                   ) # corner text
+    entries      = kwargs.get('entries',     [ ]                  )
+    emargin      = kwargs.get('emargin',     None                 )
+    plottag      = kwargs.get('tag',         ""                   )
+    xtitle       = kwargs.get('xtitle',      ""                   )
+    xminu        = kwargs.get('xmin',        None                 )
+    xmaxu        = kwargs.get('xmax',        None                 )
+    rangemargin  = kwargs.get('rangemargin', 0.18                 )
+    colors       = kwargs.get('colors',      colors               )
+    position     = kwargs.get('position',    ''                   ).lower() # legend
+    cposition    = kwargs.get('cposition',   'topright'           ).lower() # cornertext
+    ctextsize    = kwargs.get('ctextsize',   0.040                )
+    width        = kwargs.get('width',       0.22                 )
+    align        = kwargs.get('align',       "center"             ).lower() # category labels
+    heigtPerCat  = kwargs.get('h',           55                   )
+    canvasH      = kwargs.get('H',           max(400,120+heigtPerCat*npoints) )
+    canvasW      = kwargs.get('W',           800                  )
+    canvasL      = kwargs.get('L',           0.20                 )
+    canvasB      = kwargs.get('B',           minB                 )
+    canvasname   = kwargs.get('canvas',      "measurements"       )
+    canvasname   = kwargs.get('name',        canvasname           )
+    exts         = kwargs.get('ext',         ['png']              )
+    exts         = kwargs.get('exts',        exts                 )
     xmin, xmax   = None, None
     maxpoints    = 0
-    colors       = [ kBlack, kBlue, kRed, kOrange, kGreen, kMagenta ]
+    exts         = ensureList(exts)
+    ctext        = ensureList(ctext)
     
     # MAKE GRAPH
     errwidth     = 0.1
@@ -561,7 +633,13 @@ def plotMeasurements(categories,measurements,**kwargs):
         graphs.append(TGraphAsymmErrors())
       for j, point in enumerate(points):
         if point==None: continue
-        (x,xErrLow,xErrUp) = point
+        if len(point)==3:
+          x, xErrLow, xErrUp = point
+        elif len(point)==2:
+          x, xErrLow = point
+          xErrUp = xErrLow
+        else:
+          x, xErrLow, xErrUp = point[0], 0, 0
         graph = graphs[j]
         graph.SetPoint(i,x,1+i-(j+1)*offset)
         graph.SetPointError(i,xErrLow,xErrUp,errwidth,errwidth) # -/+ 1 sigma
@@ -572,33 +650,36 @@ def plotMeasurements(categories,measurements,**kwargs):
       if xmaxu: xmax = xmaxu
     else:
       range = xmax - xmin
-      xmin -= 0.18*range
-      xmax += 0.18*range
+      xmin -= rangemargin*range
+      xmax += rangemargin*range
     
     # DRAW
     canvasB  = min(canvasB,minB)
     canvasH  = int(canvasH/(1.-minB+canvasB))
     scale    = 600./canvasH
+    canvasT  = 0.07*scale
     canvasB  = minB*(scale-1)+canvasB
-    canvas   = TCanvas("canvas","canvas",100,100,800,canvasH)
-    canvas.SetTopMargin( 0.07*scale ); canvas.SetBottomMargin( canvasB )
-    canvas.SetLeftMargin(  canvasL  ); canvas.SetRightMargin(  0.04 )
+    canvasR  = 0.04
+    canvas   = TCanvas("canvas","canvas",100,100,canvasW,canvasH)
+    canvas.SetTopMargin(  canvasT ); canvas.SetBottomMargin( canvasB )
+    canvas.SetLeftMargin( canvasL ); canvas.SetRightMargin(  canvasR )
     canvas.SetGrid(1,0)
     canvas.cd()
     
+    # LEGEND
     legend = None
     if entries:
       legtextsize = 0.052*scale
-      width       = 0.25
       height      = legtextsize*1.08*len([o for o in [title,text]+zip(graphs,entries) if o])
       if 'out' in position:
-        x1 = 0.01; x2 = x1+width
-        y1 = 0.03; y2 = y1+height
+        x1 = 0.008; x2 = x1+width
+        y1 = 0.018; y2 = y1+height
       else:
-        if 'left' in position:   x1 = canvasL+0.04;    x2 = x1+width
-        else:                    x1 = 0.88;            x2 = x1-width 
-        if 'bottom' in position: y1 = 0.04+0.13*scale; y2 = y1+height
-        else:                    y1 = 0.96-0.07*scale; y2 = y1-height
+        if 'right'  in position:  x1 = 0.95;            x2 = x1-width
+        elif 'left' in position:  x1 = canvasL+0.04;    x2 = x1+width
+        else:                     x1 = 0.88;            x2 = x1-width 
+        if 'bottom' in position:  y1 = 0.04+0.13*scale; y2 = y1+height
+        else:                     y1 = 0.96-0.07*scale; y2 = y1-height
       legend = TLegend(x1,y1,x2,y2)
       legend.SetTextSize(legtextsize)
       legend.SetBorderSize(0)
@@ -625,7 +706,7 @@ def plotMeasurements(categories,measurements,**kwargs):
       graph.SetMarkerStyle(20)
       graph.SetLineWidth(2)
       graph.SetMarkerSize(1)
-      graph.Draw("PSAME")
+      graph.Draw('PSAME')
       if legend and i<len(entries):
         legend.AddEntry(graph,entries[i],'lep')
     if legend:
@@ -633,15 +714,19 @@ def plotMeasurements(categories,measurements,**kwargs):
         legend.AddEntry(graph,entries[i],'lep')
       legend.Draw()
     
+    # CORNERTEXT
+    if ctext:
+      ctextsize *= scale
+      ctext = writeText(ctext,position=cposition,textsize=ctextsize)
+    
+    # CATEGORY LABELS
     labelfontsize = 0.050*scale
     latex = TLatex()
     latex.SetTextSize(labelfontsize)
     latex.SetTextFont(62)
-    if align=="center":
+    if align=='center':
       latex.SetTextAlign(22)
-      margin = 0.02+ stringWidth(*categories)*labelfontsize/2 # width strings
-      #print stringWidth(*categories)
-      #print margin
+      margin = emargin #0.02 #+ stringWidth(*categories)*labelfontsize/2. # width strings
       xtext  = marginCenter(canvas,frame.GetXaxis(),margin=margin) # automatic
     else:
       latex.SetTextAlign(32)
@@ -650,12 +735,22 @@ def plotMeasurements(categories,measurements,**kwargs):
       ytext = i+0.5
       latex.DrawLatex(xtext,ytext,name)
     
-    CMS_lumi.relPosX = 0.13
+    CMS_lumi.cmsTextSize  = 0.85
+    CMS_lumi.lumiTextSize = 0.80
+    CMS_lumi.relPosX      = 0.13*800*0.76/(1.-canvasL-canvasR)/canvasW
     CMS_lumi.CMS_lumi(canvas,13,0)
     
-    canvas.SaveAs(canvasname+".png")
-    canvas.SaveAs(canvasname+".pdf")
+    # SAVE
+    if exts:
+      for ext in exts:
+        if '.' not in ext[0]: ext = '.'+ext
+        canvasname1 = re.sub(r"\.?(png|pdf|jpg|gif|eps|tiff?)?$",ext,canvasname,re.IGNORECASE)
+        canvas.SaveAs(canvasname1)
+    else:
+      canvas.SaveAs(canvasname)
+    
     canvas.Close()
+    
     
 def combineMeasurements(measurements):
   """Average measurement (x,errDown,errUp), weighted by their uncertainty."""
@@ -726,6 +821,46 @@ def readMeasurement(filename,**kwargs):
         measurements.append(points)
     return measurements
     
+def writeText(*text,**kwargs):
+    """Write text on plot."""
+    
+    position = kwargs.get('position',     'topleft'       ).lower()
+    textsize = kwargs.get('textsize',     0.040           )
+    font     = 62 if kwargs.get('bold',   False           ) else 42
+    align    = 13
+    if len(text)==1 and isinstance(text[0],list):
+      text = text[0]
+    else:
+      text     = ensureList(text)
+    if not text or not any(t!="" for t in text):
+      return None
+    L, R     = gPad.GetLeftMargin(), gPad.GetRightMargin()
+    T, B     = gPad.GetTopMargin(),  gPad.GetBottomMargin()
+    
+    if 'right' in position:
+      x, align = 0.96, 30
+    else:
+      x, align = 0.04, 10
+    if 'bottom' in position:
+      y = 0.05; align += 1
+    else:
+      y = 0.95; align += 3
+    x = L + (1-L-R)*x
+    y = B + (1-T-B)*y
+
+    latex = TLatex()
+    latex.SetTextSize(textsize)
+    latex.SetTextAlign(align)
+    latex.SetTextFont(font)
+    #latex.SetTextColor(kRed)
+    latex.SetNDC(True)
+    for i, line in enumerate(text):
+      latex.DrawLatex(x,y-i*1.2*textsize,line)
+    
+    return latex
+    
+
+
 def stringWidth(*strings0):
     """Make educated guess on the maximum length of a string."""
     strings = list(strings0)
@@ -745,17 +880,73 @@ def marginCenter(canvas,axis,side='left',shift=0,margin=None):
     """Calculate the center of the right margin in units of a given axis"""
     range    = axis.GetXmax() - axis.GetXmin()
     rangeNDC = 1 - canvas.GetRightMargin() - canvas.GetLeftMargin()
-    if side=="right":
+    if side=='right':
       if margin==None: margin = canvas.GetRightMargin()
-      center = axis.GetXmax() + margin*range/rangeNDC/2.0
+      center = axis.GetXmax() + margin*range/rangeNDC/2.
     else:
       if margin==None: margin = canvas.GetLeftMargin()
-      center = axis.GetXmin() - margin*range/rangeNDC/2.0
+      center = axis.GetXmin() - margin*range/rangeNDC/2.
     if shift:
         if center>0: center*=(1+shift/100.0)
         else:        center*=(1-shift/100.0)
     return center
-  
+    
+def tagToSelection(tag):
+    """Convert a tag to selections."""
+    text = ""
+    if "mtlt50" in tag:
+      text = "m_{T} < 50 GeV"
+    elif "ZTTregion2" in tag:
+      text = "m_{T} < 50 GeV, 50 GeV < m_{vis} < 100 GeV"
+      if "_45" in tag:
+        text = text.replace("50 GeV < m_{vis}","45 GeV < m_{vis}")
+      if "_85" in tag:
+        text = text.replace("m_{vis} < 100 GeV","m_{vis} < 85 GeV")
+    elif "ZTTregion" in tag:
+      text = "m_{T} < 50 GeV, 50 GeV < m_{vis} < 85 GeV, D_{#zeta} > -25 GeV"
+    if "differentCuts" in tag:
+      #re.sub(r'\d+ GeV < m_{vis} < \d+ GeV',r'#color[4]{\1}',text)
+      text = "m_{T} < 50 GeV, #color[4]{%s GeV < m_{vis} < 100 GeV}"%(45 if "45" in tag else 50)
+    lines = text.split(', ')
+    return lines
+    
+def tagToBinning(var,DM,tag):
+    """Convert a tag to text."""
+    lines = [ ]
+    if var=='m_2':
+      range = "%.2f GeV < m_{#tau} < %.2f GeV"%((0.85,1.40) if DM=='DM10' else (0.95,1.50) if DM=='DM11' else (0.35,1.20))
+      bins  = "%.2f GeV bins"%(0.10 if "0p10" in tag else 0.05 if "0p05" in tag else 0.04)
+      lines = tagToSelection(tag) + [range,bins]
+    elif var=='m_vis':
+      if "mtlt50" in tag:
+        lines.append("m_{T} < 50 GeV")
+      range = "%d GeV < m_{vis}"%(45 if "_45" in tag else 50)
+      if "ZTTregion" in tag:
+        lines.append("m_{T} < 50 GeV")
+        range += " < %d GeV"%(100 if "ZTTregion2" in tag else 85)
+      else:
+        range += " < %d GeV"%(206 if "-7" in tag else 200)
+      bins  = "%d GeV bins"%(7 if "-7" in tag else 5)
+      lines += [range,bins]
+      if re.search("ZTTregion(?!\d)",tag):
+        lines.append("D_{#zeta} > -25 GeV")
+    return lines
+    
+def tagToBinWidth(var,tag):
+    if var=='m_2':
+      return "%.2f GeV"%(0.10 if "0p10" in tag else 0.05 if "0p05" in tag else 0.04)
+    elif var=='m_vis':
+      return "%d GeV"%(7 if "-7" in tag else 5)
+    return ""
+
+
+def insertBinning(tag):
+  if '_0p' not in tag and '_' in tag and len(tag)>2:
+    pieces = tag.split('_')
+    pieces.insert(2,'0p10' if '_45' in tag else '0p04')
+    tag = '_'.join(pieces)
+  return tag
+
 def green(string,**kwargs):
   return kwargs.get('pre',"")+"\x1b[0;32;40m%s\033[0m"%(string)
   
@@ -772,128 +963,212 @@ def ensureDirectory(dirname):
       os.makedirs(dirname)
       print ">>> made directory %s"%dirname
   
-def ensureTFile(filename,**kwargs):
+def ensureTFile(filename,option='READ',**kwargs):
   """Open TFile and make sure if that it exists."""
-  if not os.path.exists(filename):
-    warning('getTFile: File "%s" does not exist!'%(filename))
-  file = TFile(filename)
-  if not file:
-    warning('getTFile: Could not open file "%s"!'%(filename))
+  pre  = kwargs.get('pre',  ""   )
+  stop = kwargs.get('exit', True )
+  if not os.path.isfile(filename):
+    error('ensureTFile: File in path "%s" does not exist'%(filename),pre=pre)
+  file = TFile(filename,option)
+  if not file or file.IsZombie():
+    if stop:
+      error('ensureTFile: Could not open file by name "%s"'%(filename),pre=pre)
+    else:
+      warning('ensureTFile: Could not open file by name "%s"'%(filename),pre=pre)
   return file
 
 def ensureFile(filename):
   if not os.path.isfile(filename):
     error('File "%s" does not exist!'%(filename))
   return filename
-
+  
+def ensureList(arg):
+  return arg if (isinstance(arg,list) or isinstance(arg,tuple)) else [arg]
 
 
 def main(args):
     
-    verbosity   = args.verbose
+    verbosity     = args.verbose
     ensureDirectory(PLOTS_DIR)
-    channels    = [ 'mt', ] #'et' ]
-    vars        = [ 'm_2', 'm_vis' ]
-    DMs         = [ 'DM0', 'DM1', 'DM10' ] #3 ]
-    tags        = args.tags
-    breakdown   = args.breakdown
-    multiDimFit = args.multiDimFit
+    channels      = [ 'mt', ] #'et' ]
+    vars          = [ 'm_2', 'm_vis' ]
+    DMs           = [ 'DM0', 'DM1', 'DM10' ] #3 ]
+    tags          = args.tags
+    breakdown     = args.breakdown
+    multiDimFit   = args.multiDimFit
+    summary       = args.summary
+    parabola      = args.parabola
+    fit           = args.fit
+    asymmetric    = args.asymm
+    customSummary = args.customSummary
     if args.DMs: DMs = args.DMs
     if args.observables: vars = [o for o in args.observables if '#' not in o]
     
     cats    = [varlabel[d] for d in DMs]
     entries = [varlabel[v] for v in vars]
-    
+    fittag  = "_fit_asymm" if asymmetric else "_fit"
+   
     # LOOP over tags, channels, variables
-    for tag in tags:
-      for channel in channels:
-        points, points_fit = [[ ],[ ]], [[ ],[ ]]
-        for i, var in enumerate(vars):
-          
-          # MULTIDIMFIT
-          slices = { }
-          if multiDimFit:
-            nnlmin, slices = findMultiDimSlices(channel,var,tag=tag)
-            plotParabola2D(channel,var,nnlmin=nnlmin,MDFslices=slices,tag=tag)
-          
-          # LOOP over DMs
-          for DM in DMs:
-            if "_0p" in tag and var=='m_vis':  continue
-            if "_85" in tag and var=='m_2':    continue
-            if "_restr" in tag and var=='m_2': continue
-            if DM=='DM11' and "newDM" not in tag:  continue
-            if DM=="DM0" and var=='m_2':
-              points[i].append(None); points_fit[i].append(None)
-              continue
-            #title = "%s, %s"%(varshorttitle[var],DM_label[DM].replace("decay mode",''))
+    if parabola:
+      for tag in tags:
+        for channel in channels:
+          points, points_fit = [ ], [ ]
+          for var in vars:
             
-            # PARABOLA
-            tes,tesDown,tesUp,tesf,tesfDown,tesfUp = plotParabola(channel,var,DM,tag=tag,breakdown=breakdown,MDFslices=slices)
+            # MULTIDIMFIT
+            slices = { }
+            if multiDimFit:
+              nnlmin, slices = findMultiDimSlices(channel,var,tag=tag)
+              plotParabolaMDF(channel,var,nnlmin=nnlmin,MDFslices=slices,tag=tag)
             
-            # SAVE points
-            points[i].append((tes,tesDown,tesUp))
-            points_fit[i].append((tesf,tesfDown,tesfUp))
+            # LOOP over DMs
+            for i, DM in enumerate(DMs):
+              if "_0p" in tag and var=='m_vis':  continue
+              if "_85" in tag and var=='m_2':    continue
+              if "_45" in tag and var=='m_2':    continue
+              if "_restr" in tag and var=='m_2': continue
+              if DM=='DM11' and "newDM" not in tag:  continue
+              if DM=="DM0" and var=='m_2':
+                if len(points)<=i:
+                  points.append([ ]); points_fit.append([ ])
+                points[i].append(None); points_fit[i].append(None)
+                continue
+              ctext = tagToBinning(var,DM,tag)
+              #title = "%s, %s"%(varshorttitle[var],DM_label[DM].replace("decay mode",''))
+              
+              # PARABOLA
+              tes,tesDown,tesUp,tesf,tesfDown,tesfUp = plotParabola(channel,var,DM,tag=tag,fit=fit,asymmetric=asymmetric,breakdown=breakdown,MDFslices=slices,ctext=ctext)
+              
+              # SAVE points
+              if len(points)<=i: points.append([ ]); points_fit.append([ ])
+              points[i].append((tes,tesDown,tesUp))
+              points_fit[i].append((tesf,tesfDown,tesfUp))
+          
+#           if len(points)>1 and len(DMs)>2:
+#             print green("write results to file",pre="\n>>> ")
+#             DMs1 = DMs if "newDM" in tag else DMs[:3]
+#             filename = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,tag)
+#             writeMeasurement(filename,DMs,points)
+#             if args.fit:
+#               writeMeasurement(filename+fittag,DMs1,points_fit)
+    
+    # SUMMARY plot
+    if summary:
+      for tag in tags:
+        if 'newDM' in tag: continue
+        for channel in channels:
+          if len(vars)==2 and len(DMs)>=3:
+            print green("make summary plot for %s"%(tag),pre="\n>>> ")
+            ftags = [ tag, tag+fittag ] if args.fit else [ tag ]
+            for ftag in ftags:
+              canvas  = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,ftag)
+              measurements = readMeasurement(canvas)
+              if "_0p" in tag: # add m_vis from measurement tagged without "_0p05"
+                canvas2 = re.sub(r"_0p\d+","",canvas)
+                measurements2 = readMeasurement(canvas2)
+                for points,points2 in zip(measurements,measurements2):
+                  points.append(points2[1])
+              if "_restr" in tag: # add m_2 from measurement tagged with "_0p05"
+                canvas2 = canvas.replace("_restr","_0p05")
+                measurements2 = readMeasurement(canvas2)
+                for points, points2 in zip(measurements,measurements2):
+                  points = points.insert(0,points2[0])
+              if "_45" in tag: # add m_2 from measurement tagged with "_0p05"
+                canvas2 = canvas.replace("_45-5","_0p10").replace("_45-7","_0p10").replace("_45","_0p10")
+                measurements2 = readMeasurement(canvas2)
+                for points, points2 in zip(measurements,measurements2):
+                  points = points.insert(0,points2[0])
+              canvas  = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,insertBinning(ftag)) # rename
+            
+              ctext = tagToSelection(tag)
+              plotMeasurements(cats,measurements,canvas=canvas,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,
+                               position="out",entries=entries,emargin=0.14,ctext=ctext,ctextsize=0.035,cposition='topright',exts=['png','pdf'])
+    
+    # CUSTOMARY summary plot
+    if customSummary and len(vars)==2 and len(DMs)>=3:
+      for ctag in customSummary:
+        print green("make customary summary plots for %s"%(ctag),pre="\n>>> ")
+        channel = "mt"
+        ftags   = [ "", fittag  ] if args.fit else [ "" ]
+        mtaubintag = "_0p04" if "0p04" in ctag else "_0p10" if "0p10" in ctag else "_0p05"
+        mvisbintag = "_45-5" if "45-5" in ctag else "_45-7" if "45-7" in ctag else ""
+        for ftag in ftags:
+          canvas  = "%s/measurement_tes_%s%s%s%s%s"%(PLOTS_DIR,channel,"_differentCuts",mtaubintag,mvisbintag,ftag)
+          canvas1 = "%s/measurement_tes_%s%s%s%s"%(PLOTS_DIR,channel,"_mtlt50",mtaubintag,ftag)
+          canvas2 = "%s/measurement_tes_%s%s%s%s"%(PLOTS_DIR,channel,"_ZTTregion2",mvisbintag,ftag)
+          ensureFile(canvas1+'.txt')
+          ensureFile(canvas2+'.txt')
+          measurements1 = readMeasurement(canvas1) # m_2
+          measurements2 = readMeasurement(canvas2) # m_vis
         
-        filename = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,tag)
-        writeMeasurement(filename,DMs,points)
-        if args.fit: writeMeasurement(filename+"_fit",DMs,points_fit)
+          # CHECK
+          if len(measurements1)<3:
+            error('Cannot make measurement summary plot with different cuts: "%s.txt" does not have enough measurements! '%(canvas1))
+          if len(measurements2)<3 or any(len(m)<1 for m in measurements2):
+            error('Cannot make measurement summary plot with different cuts: "%s.txt" does not have enough measurements !'%(canvas2))
+        
+          measurements = [ ]
+          for points1, points2 in zip(measurements1,measurements2): # loop over DMs
+            points = [points1[0],points2[-1]]
+            measurements.append(points)
+          writeMeasurement(canvas,DMs,measurements)
+          ctext = tagToSelection("differentCuts"+mvisbintag)
+          plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.17,
+                               position="out",entries=entries,emargin=0.14,ctext=ctext,ctextsize=0.035,cposition='topright',canvas=canvas,exts=['png','pdf'])
     
-#     for tag in tags:
-#       if 'newDM' in tag: continue
-#       for channel in channels:
-#         if len(vars)==2 and len(DMs)>=3:
-#           tags2 = [ tag, tag+"_fit"  ] if args.fit else [ tag ]
-#           for tag2 in tags2:
-#             canvas  = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,tag2)
-#             measurements = readMeasurement(canvas)
-#             if "_0p" in tag: # add m_vis from measurement tagged without "_0p05"
-#               canvas2 = re.sub(r"_0p\d+","",canvas)
-#               measurements2 = readMeasurement(canvas2)
-#               for points,points2 in zip(measurements,measurements2):
-#                 points.append(points2[1])
-#             if "_restr" in tag: # add m_2 from measurement tagged with "_0p05"
-#               canvas2 = canvas.replace("_restr","_0p05")
-#               measurements2 = readMeasurement(canvas2)
-#               for points, points2 in zip(measurements,measurements2):
-#                 points = points.insert(0,points2[0])
-#             plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
 #     
-#     if args.customSummary and len(vars)==2 and len(DMs)>=3:
-#       channel = "mt"
-#       tags2   = [ "", "_fit"  ] if args.fit else [ "" ]
-#       for tag2 in tags2:
-#         canvas  = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,"_differentCuts"+tag2)
-#         canvas1 = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,"_mtlt50_0p05"+tag2)
-#         canvas2 = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,"_ZTTregion2"+tag2)
-#         ensureFile(canvas+'.txt')
-#         ensureFile(canvas1+'.txt')
-#         ensureFile(canvas2+'.txt')
-#         measurements1 = readMeasurement(canvas1) # m_2
-#         measurements2 = readMeasurement(canvas2) # m_vis
-#         for points1, points2 in zip(measurements1,measurements2):
-#           points1 = points1.append(points2[1])
-#         writeMeasurement(canvas,DMs,measurements1)
-#         plotMeasurements(cats,measurements1,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
+#     # CUSTOMARY summary plot to compare selections
+#     if len(vars)>0 and len(DMs)>=3:
+#       print green("compare selections/binning in customary summary plot",pre="\n>>> ")
+#       channel  = "mt"
+#       ftags    = [ "", fittag  ] if args.fit else [ "" ]
+#       
+#       varAndTags = [
+#         ( 'm_2',   [ "_mtlt50", "_mtlt50_0p05", "_mtlt50_0p10" ]),
+#         ( 'm_vis', [ "_ZTTregion2_45-5", "_ZTTregion2_45-7" ]),
+#       ]
+#       
+#       for var, stags in varAndTags:
+#         if var not in vars: continue
+#         
+#         if var=='m_2':
+#           DMs   = [ 'DM1', 'DM10' ]
+#           index = 0
+#           ctext = tagToSelection(stags[0]) + [varlabel[var]]
+#         else:
+#           DMs   = [ 'DM0', 'DM1', 'DM10' ]
+#           index = -1
+#           ctext = tagToSelection(stags[0])
+#         
+#         canvas  = "%s/measurement_tes_%s_%s%s"%(PLOTS_DIR,channel,var,"_compareSelections")
+#         entries = ['NLL profile','parabola fit']
+#         cats    = [ "%s %s"%(varlabel[dm],tagToBinWidth(var,t)) for dm in DMs for t in stags ]
+#         
+#         # LOOP over selection tags
+#         points  = { dm: {t:[] for t in stags} for dm in DMs }
+#         for stag in stags:
+#           
+#           # LOOP over fit tags
+#           for ftag in ftags:
+#             canvas1 = "%s/measurement_tes_%s%s%s"%(PLOTS_DIR,channel,stag,ftag)
+#             ensureFile(canvas1+'.txt')
+#             measurements1 = readMeasurement(canvas1)
+#             
+#             # CHECK
+#             if len(measurements1)<3:
+#               error('Cannot make measurement summary plot with different cuts: "%s.txt" does not have enough measurements! '%(canvas1))
+#             
+#             if var!='m_2':
+#               points['DM0'][stag].append(measurements1[0][index])
+#             points['DM1'][stag].append(measurements1[1][index])
+#             points['DM10'][stag].append(measurements1[2][index])
+#           
+#         measurements = [points[dm][t] for dm in DMs for t in stags if len(points[dm][t])>0]
+#         plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.28,W=900,align='right',colors=[kBlack,kRed],
+#                              position="out",entries=entries,ctext=ctext,ctextsize=0.035,cposition='topright',canvas=canvas,exts=['png','pdf'])
+
     
-    #meas_old = [[ None,              (0.976,0.004,0.004)],
-    #            [(0.996,0.004,0.002),(0.982,0.006,0.002)],
-    #            [(1.010,0.010,0.004),(0.992,0.002,0.008)]]
-    #meas_FR  = [[ None,              (0.986,0.002,0.002)],
-    #            [(0.980,0.002,0.002),(0.988,0.002,0.002)],
-    #            [(0.986,0.004,0.006),(0.980,0.002,0.002)]]
-    #meas_new = [[ None,              (1.018,0.002,0.002)],
-    #            [(0.988,0.002,0.002),(0.986,0.002,0.004)],
-    #            [(1.012,0.002,0.002),(0.988,0.002,0.002)]]
-    #meas = [[ None,              (1.018,0.011,0.012)],
-    #        [(0.988,0.003,0.003),(0.986,0.007,0.005)],
-    #        [(1.012,0.004,0.006),(0.988,0.005,0.005)]]
-    #entries = ["m_{#tau}","m_{vis}"]
-    #canvasname = "measurement%s"%(tag)
-    #plotMeasurements(cats,meas,    xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.18,position="out",entries=entries,canvas=canvasname)
-    #plotMeasurements(cats,meas_old,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.18,position="out",entries=entries,canvas=canvasname+"_old",H=380)
-    #plotMeasurements(cats,meas_FR, xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.18,position="out",entries=entries,canvas=canvasname+"_FR", H=380)
-    #plotMeasurements(cats,meas_new,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.18,position="out",entries=entries,canvas=canvasname+"_new",H=380)
-    
+        
 
 
 if __name__ == '__main__':
@@ -902,7 +1177,7 @@ if __name__ == '__main__':
     argv = sys.argv
     description = '''This script makes datacards with CombineHarvester.'''
     parser = ArgumentParser(prog="plot Parabola",description=description,epilog="Succes!")
-    parser.add_argument( '-t', "--tag",         dest="tags", type=str, nargs='+', default=[ '' ], action='store',
+    parser.add_argument( '-t', "--tag",         dest="tags", type=str, nargs='+', default=[ ], action='store',
                          metavar="TAGS",        help="tags for the input file" )
     parser.add_argument( '-d', "--decayMode",   dest="DMs", type=str, nargs='+', default=[ ], action='store',
                          metavar="DECAY",       help="decay mode" )
@@ -912,15 +1187,26 @@ if __name__ == '__main__':
                          metavar="RANGE",       help="range of TES shifts" )
     parser.add_argument( '-f', "--fit",         dest="fit",  default=True, action='store_true',
                                                 help="fit NLL profile with parametrized parabola" )
+    parser.add_argument( '-a', "--asymm",       dest="asymm",  default=True, action='store_true',
+                                                help="fit asymmetric parabola" )
     parser.add_argument( '-b', "--breakdown",   dest="breakdown",  default=False, action='store_true',
                                                 help="plot breakdown of NLL profile" )
     parser.add_argument( '-M', "--multiDimFit", dest="multiDimFit",  default=False, action='store_true',
                                                 help="assume multidimensional fit with a POI for each DM" )
-    parser.add_argument( '-c', "--custom",      dest="customSummary",  default=False, action='store_true',
+    parser.add_argument( '-n', "--no-para",     dest="parabola", default=True, action='store_false',
+                                                help="make summary of measurements" )
+    parser.add_argument( '-s', "--summary",     dest="summary", default=False, action='store_true',
+                                                help="make summary of measurements" )
+    parser.add_argument( '-c', "--custom",      dest="customSummary", nargs='*', default=False, action='store',
                                                 help="make custom summary of measurements" )
     parser.add_argument( '-v', "--verbose",     dest="verbose",  default=False, action='store_true',
                                                 help="set verbose" )
     args = parser.parse_args()
+    
+    
+    if isinstance(args.customSummary,list):
+      if args.customSummary==[ ]:
+        args.customSummary = [ "_0p05" ]
     
     main(args)
     print ">>>\n>>> done\n"
