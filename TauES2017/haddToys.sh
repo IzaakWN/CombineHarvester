@@ -43,6 +43,7 @@ function main {
       [[ $var == "#"* ]] && continue
       [ $var == "m_vis" ] && [[ $tag == "_"*"_0p"* ]] && continue
       [ $var == "m_2"   ] && [[ $tag == *"_restr"* ]] && continue
+      [ $var == "m_2"   ] && [[ $tag == *"_45"* ]] && continue
     
       # LOOP over DMS
       for dm in $DMS; do

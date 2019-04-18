@@ -99,6 +99,7 @@ def main():
       for tag in tags:
         for obs in observables:
           if obs=="m_vis" and "0p" in tag: continue
+          if obs=="m_2" and "_45" in tag: continue
           if obs=="m_2" and "restr" in tag: continue
           for DM in DMs:
             if obs=="m_2" and DM=="DM0": continue

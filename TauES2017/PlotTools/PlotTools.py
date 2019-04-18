@@ -130,8 +130,8 @@ def makeLegend(*hists,**kwargs):
     histsB      = kwargs.get('histsB',       [ ]                               )
     histsS      = kwargs.get('histsS',       [ ]                               )
     histsD      = kwargs.get('histsD',       [ ]                               )
-    errorband   = kwargs.get('error',        None                              )
-    errortitle  = kwargs.get('errortitle',   errorband.GetTitle() if errorband else "" )
+    bands       = ensureList(kwargs.get('error', [ ]                           ))
+    bandtitles  = ensureList(kwargs.get('errortitle', bands[0].GetTitle() if bands else "" ))
     x1          = kwargs.get('x1',           0                                 )
     x2          = kwargs.get('x2',           0                                 )
     y1          = kwargs.get('y1',           0                                 )
@@ -147,7 +147,7 @@ def makeLegend(*hists,**kwargs):
     colsep      = kwargs.get('colsep',       0.06                              )
     headerfont  = 62 if kwargs.get('bold',   True                              ) else 42
     
-    if not hists: hists = histsD+histsB+histsS
+    if not hists: hists = histsD+histsB+bands+histsS
     styleB      = kwargs.get('styleB', 'f' if histsB and histsD else 'l' )
     styleS      = 'l'
     styleD      = 'lep'
@@ -156,6 +156,9 @@ def makeLegend(*hists,**kwargs):
     
     if title=="noname": title = ""
     
+    if len(bandtitles)==len(bands) and len(entries)>len(hists):
+      for band, bandtitle in zip(band,bandtitles):
+        entries.insert(hists.index(band),bandtitle)
     if entries and hists and len(entries)!=len(hists):
       LOG.error("makeLegend - %d=len(entries)!=len(hists)=%d !"%(len(entries),len(hists)))
       while len(entries)<len(hists):
@@ -166,8 +169,7 @@ def makeLegend(*hists,**kwargs):
     # count number of lines in legend
     nLines = len(entries)+sum([e.count("splitline") for e in entries])
     #else:          nLines += 0.80
-    if text:       nLines += 1 + sum([t.count("splitline")+1 for t in text]) 
-    if errorband:  nLines += 1
+    if text:       nLines += 1 + sum([t.count("splitline")+1 for t in text])
     if ncolumns>1: nLines /= float(ncolumns)
     if title:      nLines += 1 + title.count("splitline")
     
@@ -240,6 +242,7 @@ def makeLegend(*hists,**kwargs):
         if   hist in histsB: style = styleB
         elif hist in histsD: style = styleD
         elif hist in histsS: style = styleS
+        elif hist in bands:  style = 'f'
         elif i==0:           style = style0
         if "splitline" in entry:
           entry1, entry2 = re.findall(r"#splitline{(.*)}{(.*)}",entry)[0]
@@ -247,8 +250,6 @@ def makeLegend(*hists,**kwargs):
           legend.AddEntry(   0,makeTitle(entry2),'')
         else:
           legend.AddEntry(hist,makeTitle(entry),style)
-    if errorband:
-      legend.AddEntry(errorband,errortitle,'f')
     for line in text:
       legend.AddEntry(0,makeTitle(line),'')
     
@@ -265,7 +266,11 @@ def writeText(*text,**kwargs):
     textsize = kwargs.get('textsize',     legendtextsize  )
     font     = 62 if kwargs.get('bold',   False           ) else 42
     align    = 13
-    if text=="":
+    if len(text)==1 and isinstance(text[0],list):
+      text = text[0]
+    else:
+      text     = ensureList(text)
+    if not text or not any(t!="" for t in text):
       return None
     text     = ensureList(text)
     L, R     = gPad.GetLeftMargin(), gPad.GetRightMargin()
@@ -413,7 +418,7 @@ def makeAxes(frame, *args, **kwargs):
     
     if logy:
       #if not ymin: ymin = 0.1
-      #if ymin==0: ymin = min(0.1,10**(magnitude(ymax)-3))
+      if not ymin: ymin = max(0.1,10**(magnitude(ymax)-3))
       gPad.Update(); gPad.SetLogy()
     if logx:
       if not xmin: xmin = 0.1
@@ -434,7 +439,7 @@ def makeAxes(frame, *args, **kwargs):
       elif frame.GetXaxis().IsVariableBinSize():
         ytitle = "Events / bin size"
       else:
-        ytitle = ("Events / %.2f"%frame.GetXaxis().GetBinWidth(0)).rstrip("0").rstrip(".")
+        ytitle = ("Events / %.3f"%frame.GetXaxis().GetBinWidth(0)).rstrip("0").rstrip(".")
         units = re.findall(r' \[(.+)\]',xtitle) #+ re.findall(r' (.+)',xtitle)
         if units:
           if ytitle[-2]==" 1":
@@ -511,9 +516,9 @@ def makeAxesRatio(frame, *args, **kwargs):
     ndivisions   = kwargs.get('ndiv',           ndivisions                 )
     LOG.verbose("makeAxes: binning 2 (%s,%.1f,%.1f)"%(nbins,xmin,xmax),verbosity,2)
 
-    if allowintbins and nbins<10 and int(xmin)==xmin and int(xmax)==xmax and binwidth==1:
+    if allowintbins and (binlabels or (nbins<10 and int(xmin)==xmin and int(xmax)==xmax and binwidth==1)):
       LOG.verbose("makeAxesRatio: setting integer binning for (%s,%d,%d)!"%(nbins,xmin,xmax),verbosity,1)
-      binlabels    = [str(i) for i in range(int(xmin),int(xmax)+1)]
+      binlabels    = binlabels if binlabels else [str(i) for i in range(int(xmin),int(xmax)+1)]
       xlabelsize   = 0.19
       xlabeloffset = 0.01
       ndivisions   = 12
@@ -568,7 +573,7 @@ def makeAxesRatio(frame, *args, **kwargs):
     return xmin, xmax, ymin, ymax
     
 def columnize(list,ncol=2):
-    """Transpose into n columns"""
+    """Transpose lists into n columns, e.g. [1,2,3,4,5,6,7] -> [1,5,2,6,3,7,4] for ncol=2."""
     parts   = partition(list,ncol)
     collist = [ ]
     row     = 0
@@ -1326,7 +1331,7 @@ def makeRatioTGraphWithTH1(graphnom,histden,**kwargs):
         ir += 1
     return graph_ratio
 
-def getTGraphYRange(graphs,ymin=+999989,ymax=-999989):
+def getTGraphYRange(graphs,ymin=+10e10,ymax=-10e10,margin=0.0):
     """Get full y-range of a given TGraph object."""
     if not isinstance(graphs,list) and not isinstance(graphs,tuple):
       graphs = [ graphs ]
@@ -1339,6 +1344,10 @@ def getTGraphYRange(graphs,ymin=+999989,ymax=-999989):
         ylow = y-graph.GetErrorYlow(i)
         if yup >ymax: ymax = yup
         if ylow<ymin: ymin = ylow
+    if margin>0:
+      yrange = ymax-ymin
+      ymax  += yrange*margin
+      ymin  -= yrange*margin
     return (ymin,ymax)
     
 def haveSameAxes(hist1,hist2,**kwargs):
@@ -1503,8 +1512,9 @@ class Ratio(object):
                   ratio.SetBinContent(inom,frac)
                   ratio.SetBinError(inom,hist.GetBinError(inom)/den)
                 else:
-                  ratio.SetPoint(i,xval,frac)
-                  ratio.SetPointError(i,width/2.0,width/2.0,el,eh)
+                  iden = ratio.GetN()
+                  ratio.SetPoint(iden,xval,frac)
+                  ratio.SetPointError(iden,width/2.0,width/2.0,el,eh)
             if error0:
                 x, y = Double(), Double()
                 self.error.GetPoint(i,x,y)
@@ -1512,8 +1522,9 @@ class Ratio(object):
                 self.error.SetPointEYlow(i,error.GetErrorYlow(i)/den)
                 self.error.SetPointEYhigh(i,error.GetErrorYhigh(i)/den)
             elif staterror:
-                self.error.SetPoint(i,xval,1)
-                self.error.SetPointError(i,width/2.0,width/2.0,histden.GetBinErrorLow(i)/den,histden.GetBinErrorUp(i)/den)
+                ierr = ratio.GetN()
+                self.error.SetPoint(ierr,xval,1)
+                self.error.SetPointError(ierr,width/2.0,width/2.0,histden.GetBinErrorLow(i)/den,histden.GetBinErrorUp(i)/den)
           elif self.drawZero:
             for ratio, hist in zip(self.ratios,histnoms):
               inom = hist.GetXaxis().FindBin(xval)
@@ -1524,8 +1535,9 @@ class Ratio(object):
                   ratio.SetBinContent(inom,yval)
                   ratio.SetBinError(inom,0.0)
                 else:
-                  ratio.SetPoint(inom,xval,yval)
-                  ratio.SetPointError(inom,width/2.0,width/2.0,0.0,0.0)
+                  iden = ratio.GetN()
+                  ratio.SetPoint(iden,xval,yval)
+                  ratio.SetPointError(iden,width/2.0,width/2.0,0.0,0.0)
         
     
     
@@ -1621,6 +1633,7 @@ class Plot(object):
           self.ymin             = kwargs.get('ymin',        variable.ymin      )
           self.ymax             = kwargs.get('ymax',        variable.ymax      )
           self.binlabels        = kwargs.get('binlabels',   variable.binlabels )
+          self.ymargin          = kwargs.get('ymargin',     variable.ymargin   )
           self.xtitle           = kwargs.get('xtitle',      variable.title     )
           self.logy             = kwargs.get('logy',        variable.logy      )
           self.position         = kwargs.get('position',    variable.position  )
@@ -1630,14 +1643,15 @@ class Plot(object):
           self.var              = kwargs.get('var',         frame.GetXaxis().GetTitle() )
           self.xmin             = kwargs.get('xmin',        frame.GetXaxis().GetXmin()  )
           self.xmax             = kwargs.get('xmax',        frame.GetXaxis().GetXmax()  )
-          self.ymin             = kwargs.get('ymin',        None               )
-          self.ymax             = kwargs.get('ymax',        None               )
-          self.binlabels        = kwargs.get('binlabels',   None               )
-          self.xtitle           = kwargs.get('xtitle',      self.var           )
-          self.logy             = kwargs.get('logy',        False              )
-          self.position         = kwargs.get('position',    ""                 )
-          self.ncolumns         = kwargs.get('ncolumns',    1                  )
-          self.latex            = kwargs.get('latex',       True               )
+          self.ymin             = kwargs.get('ymin',        None                        )
+          self.ymax             = kwargs.get('ymax',        None                        )
+          self.binlabels        = kwargs.get('binlabels',   None                        )
+          self.xtitle           = kwargs.get('xtitle',      self.var                    )
+          self.logy             = kwargs.get('logy',        False                       )
+          self.ymargin          = kwargs.get('ymargin',     1.80 if self.logy else 1.16 )
+          self.position         = kwargs.get('position',    ""                          )
+          self.ncolumns         = kwargs.get('ncolumns',    1                           )
+          self.latex            = kwargs.get('latex',       True                        )
         self.ytitle             = kwargs.get('ytitle',      frame.GetYaxis().GetTitle() )
         
         self.errorband          = None
@@ -1730,7 +1744,7 @@ class Plot(object):
         xtitleoffset    = kwargs.get('xtitleoffset',        1.0                    )
         logx            = kwargs.get('logx',                False                  )
         logy            = kwargs.get('logy',                False                  )
-        ymargin         = kwargs.get('ymargin',             1.80 if logy else 1.16 )
+        ymargin         = kwargs.get('ymargin',             self.ymargin           )
         grid            = kwargs.get('grid',                len(self.histsD)==0    )
         legend          = kwargs.get('legend',              True                   )
         entries         = kwargs.get('entries',             [ ]                    )
@@ -1746,6 +1760,7 @@ class Plot(object):
         autostyle       = kwargs.get('autostyle',           True                   )
         colors          = kwargs.get('colors',              self.colors            )
         linestyle       = kwargs.get('linestyle',           False                  )
+        linewidth       = kwargs.get('linewidth',           2                      )
         markerstyle     = kwargs.get('markerstyle',         False                  )
         linewidth       = kwargs.get('linewidth',           2                      )
         roption         = kwargs.get('roption',             'PEZ0'                 )
@@ -1810,11 +1825,11 @@ class Plot(object):
             #  else:              markerhists.append(hist)
             #self.setLineStyle(*linehists,colors=colors,style=linestyle)
             #self.setMarkerStyle(*markerhists,colors=colors)
-            self.setLineStyle(*histsMC,colors=colors,style=linestyle,markerstyle=markerstyle)
+            self.setLineStyle(*histsMC,colors=colors,style=linestyle,markerstyle=markerstyle,width=linewidth)
         if self.histsD:
             self.setMarkerStyle(*self.histsD)
         if self.histsS:
-            self.setLineStyle(*self.histsS,colors=colors,style=linestyle)
+            self.setLineStyle(*self.histsS,colors=colors,style=linestyle,width=linewidth)
         
         # STATISTICAL ERROR
         if staterror:
@@ -2217,22 +2232,33 @@ class Plot2D(object):
 def drawTGraphs(graphs,**kwargs):
     """Draw simple graphs."""
     
-    graphs     = ensureList(graphs)
-    option     = kwargs.get('option',   "LEP"        )
-    title      = kwargs.get('title',    ""           )
-    xtitle     = kwargs.get('xtitle',   ""           )
-    ytitle     = kwargs.get('ytitle',   ""           )
-    xmin       = kwargs.get('xmin',     0            )
-    xmax       = kwargs.get('xmax',     100          )
-    ymin       = kwargs.get('ymin',     0            )
-    ymax       = kwargs.get('ymax',     100          )
-    colors     = kwargs.get('colors',   linecolors   )
-    legend     = kwargs.get('legend',   True         )
-    text       = kwargs.get('text',     ""           )
-    canvasname = kwargs.get('canvas',   "graphs.png" )
-    canvasname = kwargs.get('name',     canvasname   )
-    exts       = kwargs.get('exts',     [ ]          )
-    exts       = kwargs.get('ext',      exts         )
+    tmargin, bmargin = 0.08, 0.14
+    lmargin, rmargin = 0.13, 0.04
+    graphs       = ensureList(graphs) 
+    option       = kwargs.get('option',       "LEP"              )
+    title        = kwargs.get('title',        ""                 )
+    xtitle       = kwargs.get('xtitle',       ""                 )
+    ytitle       = kwargs.get('ytitle',       ""                 )
+    xmin         = kwargs.get('xmin',         0                  )
+    xmax         = kwargs.get('xmax',         100                )
+    ymin         = kwargs.get('ymin',         0                  )
+    ymax         = kwargs.get('ymax',         100                )
+    colors       = kwargs.get('colors',       linecolors         )
+    legend       = kwargs.get('legend',       True               )
+    position     = kwargs.get('position',     "left"             )
+    ctext        = kwargs.get('ctext',        [ ]                ) # corner text
+    cposition    = kwargs.get('cposition',    'topleft'          ).lower() # cornertext
+    ctextsize    = kwargs.get('ctextsize',    1.4*legendtextsize )
+    bmargin      = kwargs.get('bmargin',      bmargin            )
+    lmargin      = kwargs.get('lmargin',      lmargin            )
+    ytitleoffset = kwargs.get('ytitleoffset', 1.08               )
+    xtitleoffset = kwargs.get('xtitleoffset', 1.05               )
+    text         = kwargs.get('text',         ""                 )
+    canvasname   = kwargs.get('canvas',       "graphs.png"       )
+    canvasname   = kwargs.get('name',         canvasname         )
+    exts         = kwargs.get('exts',         [ ]                )
+    exts         = kwargs.get('ext',          exts               )
+    ctext        = ensureList(ctext)
     #graphsleg  = columnize(graphs) if len(graphs)>6 else graphs # reordered for two columns
     
     # MAIN plot
@@ -2241,8 +2267,8 @@ def drawTGraphs(graphs,**kwargs):
     canvas.SetBorderMode(0)
     canvas.SetFrameFillStyle(0)
     canvas.SetFrameBorderMode(0)
-    canvas.SetTopMargin(  0.08 ); canvas.SetBottomMargin( 0.14 )
-    canvas.SetLeftMargin( 0.13 ); canvas.SetRightMargin(  0.04 )
+    gPad.SetTopMargin(  tmargin ); gPad.SetBottomMargin( bmargin )
+    gPad.SetLeftMargin( lmargin ); gPad.SetRightMargin(  rmargin )
     canvas.SetTickx(0); gPad.SetTicky(0)
     canvas.SetGrid()
     
@@ -2254,11 +2280,23 @@ def drawTGraphs(graphs,**kwargs):
       #  y1, height = 0.86, textsize*1.08*ceil(len([l for l in [text]+graphs if l])/2.)
       #  if title: height += textsize*1.08
       #else:
-      textsize   = 0.045
-      x1, width  = 0.18, 0.25
-      y1, height = 0.86, textsize*1.10*len([l for l in [title,text]+graphs if l])
-      if title: height += textsize*1.10
-      legend = TLegend(x1,y1,x1+width,y1-height)
+      textsize = 0.045
+      width    = 0.25
+      height   = textsize*1.10*len([l for l in [title,text]+graphs if l])
+      if title: height += textsize*1.10  
+      if   'right'  in position.lower(): x2 = 0.90; x1 = x2 - width
+      elif 'center' in position.lower(): x1 = (1+lmargin-rmargin-width)/2; x2 = x1 + width
+      elif 'x='     in position:
+        x1 = float(re.findall(r"x=(\d\.\d+)",position)[0])
+        x1 = lmargin + (1-lmargin-rmargin)*x1; x2 = x1 + width
+      else:                              x1 = 0.18; x2 = x1 + width
+      if   'bottom' in position.lower(): y1 = 0.15; y2 = y1 + height
+      elif 'middle' in position.lower(): y1 = (1+bmargin-tmargin-height)/2; y2 = y1 + height
+      elif 'y='     in position:
+        y2 = float(re.findall(r"y=(\d\.\d+)",position)[0]);
+        y2 = bmargin + (1-tmargin-bmargin)*y2; y1 = y2 - height
+      else:                                    y2 = 0.86; y1 = y2 - height
+      legend = TLegend(x1,y1,x2,y2)
       legend.SetTextSize(textsize)
       legend.SetBorderSize(0)
       legend.SetFillStyle(0)
@@ -2276,8 +2314,8 @@ def drawTGraphs(graphs,**kwargs):
     frame.GetXaxis().SetLabelSize(0.056)
     frame.GetYaxis().SetLabelSize(0.054)
     frame.GetXaxis().SetLabelOffset(0.010)
-    frame.GetXaxis().SetTitleOffset(1.05)
-    frame.GetYaxis().SetTitleOffset(1.08)
+    frame.GetXaxis().SetTitleOffset(xtitleoffset)
+    frame.GetYaxis().SetTitleOffset(ytitleoffset)
     frame.GetXaxis().SetNdivisions(508)
     frame.GetYaxis().SetTitle(ytitle)
     frame.GetXaxis().SetTitle(xtitle)
@@ -2288,13 +2326,15 @@ def drawTGraphs(graphs,**kwargs):
         graph.Draw('HIST SAME')
       else:
         graph.Draw(option)
-      
+    
     if legend:
       for graph in graphs:
         legend.AddEntry(graph, graph.GetTitle(), option)
       if text:
         legend.AddEntry(0, text, '')
       legend.Draw()
+    if ctext:
+      ctext = writeText(ctext,position=cposition,textsize=ctextsize)
     
     CMS_lumi.relPosX = 0.12
     CMS_lumi.CMS_lumi(gPad,13,0)
@@ -2314,7 +2354,9 @@ def drawTGraphs(graphs,**kwargs):
     
     
 def drawTGraphsWithRatio(graphs,**kwargs):
-  
+    
+    tmargin, bmargin = 0.08, 0.02
+    lmargin, rmargin = 0.12, 0.04
     title        = kwargs.get('title',          ""                         )
     xtitle       = kwargs.get('xtitle',         ""                         )
     ytitle       = kwargs.get('ytitle',         ""                         )
@@ -2324,10 +2366,17 @@ def drawTGraphsWithRatio(graphs,**kwargs):
     ymax         = kwargs.get('ymax',           100                        )
     rtitle       = kwargs.get('rtitle',         "Ratio"                    )
     rtitlesize   = kwargs.get('rtitlesize',     1.0                        )*0.12
-    rtitleoffset = kwargs.get('rtitleoffset',   0.50+2.0*(0.12-rtitlesize) ) #0.50
+    rtitleoffset = kwargs.get('rtitleoffset',   0.50+2.0*(0.12-rtitlesize) )
+    ytitleoffset = kwargs.get('ytitleoffset',   0.98                       )
     rmin         = kwargs.get('rmin',           0.5                        )
     rmax         = kwargs.get('rmax',           1.5                        )
+    lmargin      = kwargs.get('lmargin',        lmargin                    )
+    logx         = kwargs.get('logx',           False                      )
+    logy         = kwargs.get('logy',           False                      )
     position     = kwargs.get('position',       ""                         )
+    ctext        = kwargs.get('ctext',          [ ]                        ) # corner text
+    cposition    = kwargs.get('cposition',      'topleft'                  ).lower() # cornertext
+    ctextsize    = kwargs.get('ctextsize',      1.4*legendtextsize         )
     text         = kwargs.get('text',           ""                         )
     denom        = kwargs.get('denom',          1                          )-1 # denominator for ratio
     option       = kwargs.get('option',         'LEP'                      )
@@ -2338,14 +2387,13 @@ def drawTGraphsWithRatio(graphs,**kwargs):
     canvasname   = kwargs.get('canvas',         "graphs.png"               )
     canvasname   = kwargs.get('name',           canvasname                 )
     exts         = kwargs.get('exts',           [ ]                        )
-    exts         = kwargs.get('ext',            exts                       )
+    exts         = kwargs.get('ext',            exts                       )  
+    ctext        = ensureList(ctext)
     
     #gcolors    = kwargs.get('exts',     [ ]              )
     graphsleg  = columnize(graphs) if len(graphs)>6 else graphs # reordered for two columns
     
     # MAIN plot
-    tmargin, bmargin = 0.08, 0.02
-    lmargin, rmargin = 0.12, 0.04
     canvas = TCanvas("canvas","canvas",100,100,800,800)
     canvas.SetFillColor(0)
     canvas.SetBorderMode(0)
@@ -2415,10 +2463,12 @@ def drawTGraphsWithRatio(graphs,**kwargs):
     frame.GetYaxis().SetLabelSize(0.052)
     frame.GetXaxis().SetLabelOffset(0.010)
     frame.GetXaxis().SetTitleOffset(0.98)
-    frame.GetYaxis().SetTitleOffset(0.98)
+    frame.GetYaxis().SetTitleOffset(ytitleoffset)
     frame.GetXaxis().SetNdivisions(508)
     frame.GetYaxis().SetTitle(ytitle)
     frame.GetXaxis().SetTitle(xtitle)
+    if logx: gPad.Update(); gPad.SetLogx()
+    if logy: gPad.Update(); gPad.SetLogy()
     
     for i, graph in enumerate(graphs):
       if setStyle: setGraphStyle(graph,i,colors=colors)
@@ -2432,6 +2482,8 @@ def drawTGraphsWithRatio(graphs,**kwargs):
     if text:
       legend.AddEntry(0, text, '')
     legend.Draw()
+    if ctext:
+      ctext = writeText(ctext,position=cposition,textsize=ctextsize)
     
     CMS_lumi.lumi_13TeV = "%s, %s fb^{-1}"%(era,luminosity) if era else "%s fb^{-1}"%(luminosity) if luminosity else ""
     CMS_lumi.relPosX = 0.11
@@ -2457,6 +2509,7 @@ def drawTGraphsWithRatio(graphs,**kwargs):
     frame_ratio.GetYaxis().SetTitle(rtitle)
     frame_ratio.GetXaxis().SetTitle(xtitle)
     frame_ratio.GetYaxis().SetNdivisions(5)
+    if logx: gPad.Update(); gPad.SetLogx()
     
     ratios = [ ]
     line = TLine(xmin,1.,xmax,1.)
@@ -2603,6 +2656,7 @@ def plotMeasurements(categories,measurements,**kwargs):
     npoints      = len(measurements)
     categories   = categories[::-1]
     measurements = measurements[::-1]
+    colors       = [ kBlack, kBlue, kRed, kOrange, kGreen, kMagenta ]
     minB         = 0.13
     title        = kwargs.get('title',       ""                   )
     text         = kwargs.get('text',        ""                   )
@@ -2613,12 +2667,16 @@ def plotMeasurements(categories,measurements,**kwargs):
     xminu        = kwargs.get('xmin',        None                 )
     xmaxu        = kwargs.get('xmax',        None                 )
     rangemargin  = kwargs.get('rangemargin', 0.18                 )
+    xupmargin    = kwargs.get('xupmargin',   rangemargin          )
+    xlowmargin   = kwargs.get('xlowmargin',  rangemargin          )
+    colors       = kwargs.get('colors',      colors               )
     position     = kwargs.get('position',    ''                   ).lower() # legend
     cposition    = kwargs.get('cposition',   'topleft'            ).lower() # cornertext
     ctextsize    = kwargs.get('ctextsize',   1.4*legendtextsize   )
     width        = kwargs.get('width',       0.22                 )
     align        = kwargs.get('align',       "center"             ).lower() # category labels
-    canvasH      = kwargs.get('H',           min(400,120+90*npoints) )
+    heigtPerCat  = kwargs.get('h',           90                   )
+    canvasH      = kwargs.get('H',           min(400,120+heigtPerCat*npoints) )
     canvasW      = kwargs.get('W',           800                  )
     canvasL      = kwargs.get('L',           0.20                 )
     canvasB      = kwargs.get('B',           minB                 )
@@ -2628,7 +2686,6 @@ def plotMeasurements(categories,measurements,**kwargs):
     exts         = kwargs.get('exts',        exts                 )
     xmin, xmax   = None, None
     maxpoints    = 0
-    colors       = [ kBlack, kBlue, kRed, kOrange, kGreen, kMagenta ]
     
     # MAKE GRAPH
     errwidth     = 0.1
@@ -2648,7 +2705,8 @@ def plotMeasurements(categories,measurements,**kwargs):
           x, xErrLow = point
           xErrUp = xErrLow
         else:
-          x = point[0]
+          x, xErrLow, xErrUp = point[0], 0, 0
+          
         graph = graphs[j]
         graph.SetPoint(i,x,1+i-(j+1)*offset)
         graph.SetPointError(i,xErrLow,xErrUp,errwidth,errwidth) # -/+ 1 sigma
@@ -2659,14 +2717,15 @@ def plotMeasurements(categories,measurements,**kwargs):
       if xmaxu: xmax = xmaxu
     else:
       range = xmax - xmin
-      xmin -= rangemargin*range
-      xmax += rangemargin*range
+      xmin -= xlowmargin*range
+      xmax += xupmargin*range
     
     # DRAW
     canvasB  = min(canvasB,minB)
     canvasH  = int(canvasH/(1.-minB+canvasB))
     scale    = 600./canvasH
     canvasB  = minB*(scale-1)+canvasB
+    canvasR  = 0.04
     canvas   = TCanvas("canvas","canvas",100,100,canvasW,canvasH)
     canvas.SetTopMargin( 0.07*scale ); canvas.SetBottomMargin( canvasB )
     canvas.SetLeftMargin(  canvasL  ); canvas.SetRightMargin(  0.04 )
@@ -2678,8 +2737,8 @@ def plotMeasurements(categories,measurements,**kwargs):
       legtextsize = 0.052*scale
       height      = legtextsize*1.08*len([o for o in [title,text]+zip(graphs,entries) if o])
       if 'out' in position:
-        x1 = 0.01; x2 = x1+width
-        y1 = 0.03; y2 = y1+height
+        x1 = 0.008; x2 = x1+width
+        y1 = 0.018; y2 = y1+height
       else:
         if 'right'  in position:  x1 = 0.95;            x2 = x1-width
         elif 'left' in position:  x1 = canvasL+0.04;    x2 = x1+width
@@ -2739,7 +2798,7 @@ def plotMeasurements(categories,measurements,**kwargs):
     
     CMS_lumi.cmsTextSize  = 0.85
     CMS_lumi.lumiTextSize = 0.80
-    CMS_lumi.relPosX      = 0.13
+    CMS_lumi.relPosX      = 0.13*800*0.76/(1.-canvasL-canvasR)/canvasW
     CMS_lumi.CMS_lumi(canvas,13,0)
     
     # SAVE

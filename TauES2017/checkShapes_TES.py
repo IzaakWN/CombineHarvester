@@ -10,7 +10,7 @@ from PlotTools.PlotTools import Plot, ceilToSignificantDigit, groupHistsInList, 
 import PlotTools.CMS_lumi as CMS_lumi, PlotTools.tdrstyle as tdrstyle
 from PlotTools.PrintTools import color, warning, error
 import ROOT
-from ROOT import TFile, TTree
+from ROOT import TFile, TTree, kAzure, kRed, kGreen, kOrange, kMagenta, kYellow
 ROOT.gROOT.SetBatch(ROOT.kTRUE)
 
 argv = sys.argv
@@ -46,7 +46,7 @@ category_dict  = {
   'DM10': "h^{#pm}h^{#mp}h^{#pm}",
   'DM11': "h^{#pm}h^{#mp}h^{#pm}#pi^{0}",
 }
-variable_dict  = { 'm_2': "tau mass m_{tau}" }
+variable_dict  = { 'm_2': "m_{tau}", 'pt_2': "tau p_{T}" } #tau mass
 variation_dict = { }
 PlotTools.PlotTools.luminosity = 41.4
 PlotTools.PlotTools.era = 2017
@@ -69,7 +69,7 @@ def drawStacks(filename,dirname,samples,shifts=[ "" ],**kwargs):
   group   = kwargs.get('group',   [ ]            )
   ensureDirectory(outdir)
   if not isList(samples): samples = [samples]
-  if not dir: print warning('drawStacks: did not find dir "%s"'%(dirname),pre=">>>   ")
+  if not dir: print warning('drawStacks: did not find dir "%s"'%(dirname),pre="   ")
   if channel: channel += '-'
   
   for shift in shifts:
@@ -92,11 +92,11 @@ def drawStacks(filename,dirname,samples,shifts=[ "" ],**kwargs):
         else: # NOMINAL
           hist = dir.Get(sample)
         if not hist:
-          print warning('drawStacks: could not find "%s" template in directory "%s"'%(sample,dir.GetName()),pre=">>>   ")
+          print warning('drawStacks: could not find "%s" template in directory "%s"'%(sample,dir.GetName()),pre="   ")
           continue
         hist.SetName(hist.GetName().replace('_ttbar','').replace('_ztt',''))
         hist.SetTitle(sample_dict[sample])
-        if "data_obs" in sample:
+        if 'data_obs' in sample:
           histsD.append(hist)
           hist.SetLineColor(1)
           if blind:
@@ -106,7 +106,7 @@ def drawStacks(filename,dirname,samples,shifts=[ "" ],**kwargs):
           histsB.append(hist)
       
       if len(histsB)==0 or (shift and nShifted==0):
-        print warning('drawStacks: could not find any "%s" templates in directory "%s"'%(shift,dir.GetName()),pre=">>>   ")
+        print warning('drawStacks: could not find any "%s" templates in directory "%s"'%(shift,dir.GetName()),pre="   ")
         continue
       
       for groupargs in group:
@@ -117,7 +117,7 @@ def drawStacks(filename,dirname,samples,shifts=[ "" ],**kwargs):
       vartitle = variable_dict.get(var,var)
       tshift   = formatFilename(shift)
       nshift   = ('_'+tshift+variation) if tshift else ""
-      title    = formatCategory(dirname,tshift,variation)
+      title    = formatCategory(dirname,tshift,variation,channel=channel.rstrip('-'))
       canvasname = "%s/%s_%s%s%s%s.png"%(outdir,varname,channel,dirname,tag,nshift)
       exts       = ['pdf','png'] if args.pdf else ['png']
       
@@ -139,6 +139,7 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
     tag             = kwargs.get('tag',            ""        )
     xmin            = kwargs.get('xmin',           None      )
     xmax            = kwargs.get('xmax',           None      )
+    ymargin         = kwargs.get('ymargin',        1.22      )
     dirnametag      = kwargs.get('dirnametag',     dirname   )
     outdir          = kwargs.get('outdir',         "plots"   )
     group           = kwargs.get('group',          [ ]       )
@@ -162,7 +163,7 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
     fits            = ['prefit','postfit']
     file            = ensureTFile(filename,'READ')
     if not file:
-      print error('drawPrePostFit: did not find file "%s"'%(filename),pre=">>>   ")
+      print error('drawPrePostFit: did not find file "%s"'%(filename),pre="   ")
       exit(1)
     
     # ARRANGE signal sample files, (histogram) names and titles
@@ -175,15 +176,15 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
     if len(signals)>0 and len(signalstrengths)==0:
       signalstrengths = [1.0]*len(signals)
     if len(signals)!=len(signaltitles):
-      print error('drawPrePostFit: len(signals) = %d != %d = len(signaltitles)'%(len(signals),len(signaltitles)),pre=">>>   ")
+      print error('drawPrePostFit: len(signals) = %d != %d = len(signaltitles)'%(len(signals),len(signaltitles)),pre="   ")
       exit(1)
     if len(signalfilenames)+1==len(signals):
       signalfilenames += [filename]+signalfilenames
     elif len(signalfilenames)!=len(signals):
-      print error('drawPrePostFit: len(signalfilenames) = %d != %d = len(signals)'%(len(signalfilenames),len(signals)),pre=">>>   ")
+      print error('drawPrePostFit: len(signalfilenames) = %d != %d = len(signals)'%(len(signalfilenames),len(signals)),pre="   ")
       exit(1)
     if len(signalfilenames)!=len(signals):
-      print error('drawPrePostFit: len(signalfilenames) = %d != %d = len(signals)'%(len(signalfilenames),len(signals)),pre=">>>   ")
+      print error('drawPrePostFit: len(signalfilenames) = %d != %d = len(signals)'%(len(signalfilenames),len(signals)),pre="   ")
       exit(1)
     for signalfilename in signalfilenames:
       signalfile = file if signalfilename==filename else ensureTFile(signalfilename,'READ')
@@ -195,7 +196,7 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
       fitdirname = "%s_%s"%(dirname,fit)
       dir = file.Get(fitdirname)
       if not dir:
-        print warning('drawPrePostFit: did not find dir "%s"'%(fitdirname),pre=">>>   ")
+        print warning('drawPrePostFit: did not find dir "%s"'%(fitdirname),pre="   ")
         return
       histsD = [ ]
       histsB = [ ]
@@ -207,12 +208,12 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
         stitle   = sample_dict[sample]+append_dict.get(sample,"")
         hist     = file.Get(histname)
         if not hist:
-          print warning('drawPrePostFit: could not find "%s" template in directory "%s_%s"'%(sample,dirname,fit),pre=">>>   ")
+          print warning('drawPrePostFit: could not find "%s" template in directory "%s_%s"'%(sample,dirname,fit),pre="   ")
           continue
-        if "data_obs" in sample:
+        if 'data_obs' in sample:
           histsD.append(hist)
           hist.SetLineColor(1)
-          ymax = hist.GetMaximum()*1.22
+          ymax = hist.GetMaximum()*ymargin
         else:
           histsB.append(hist)
         hist.SetTitle(stitle)
@@ -222,7 +223,7 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
         histname = "%s/%s"%(fitdirname,sample)
         hist     = signalfile.Get(histname)
         if not hist:
-          print warning('drawPrePostFit: could not find "%s" template in directory "%s_%s"'%(sample,dirname,fit),pre=">>>   ")
+          print warning('drawPrePostFit: could not find "%s" template in directory "%s_%s"'%(sample,dirname,fit),pre="   ")
           continue
         scale = upscale/signalr if 'post' in fit else upscale
         hist.Scale(scale)
@@ -230,10 +231,10 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
         hist.SetTitle(stitle)
       
       if len(histsB)==0:
-        print warning('drawPrePostFit: could not find any templates in directory "%s"'%(dirname),pre=">>>   ")
+        print warning('drawPrePostFit: could not find any templates in directory "%s"'%(dirname),pre="   ")
         continue
       if len(histsD)==0:
-        print warning('drawPrePostFit: could not find a data template in directory "%s"'%(dirname),pre=">>>   ")
+        print warning('drawPrePostFit: could not find a data template in directory "%s"'%(dirname),pre="   ")
         continue
       
       for groupargs in group:
@@ -242,14 +243,15 @@ def drawPrePostFit(filename,dirname,samples,**kwargs):
       var            = histsB[0].GetXaxis().GetTitle()
       varname        = formatVariable(var)
       vartitle       = variable_dict.get(var,var)
-      position       = userposition if userposition else "x=0.69" if 'post' in fit else "x=0.66"
+      position       = userposition if userposition else "x=0.67" if 'post' in fit else "x=0.66"
       title          = formatCategory(dirname) if usertitle==None else usertitle
       errortitle     = "pre-fit stat. + syst. unc." if 'pre' in fit else "post-fit unc."
       canvasname     = "%s/%s_%s%s_%s.png"%(outdir,varname,dirnametag,tag,fit)
       exts           = ['pdf','png'] if args.pdf else ['png']
       
       plot = Plot(histsD,histsB,histsS,stack=True)
-      plot.plot(vartitle,xmin=xmin,xmax=xmax,ymax=ymax,ratio=ratio,staterror=True,colors=colors,
+      plot.plot(vartitle,xmin=xmin,xmax=xmax,ymax=ymax,
+                ratio=ratio,staterror=True,colors=colors,linewidth=3,
                 title=title,text=text,errortitle=errortitle,position=position,
                 signallegend=signalheader,signaltitle=signalheader,signalposition=signalposition)
       plot.saveAs(canvasname,ext=exts)
@@ -261,15 +263,16 @@ def drawVariations(filename,dirname,samples,variations,**kwargs):
   """Compare variations, e.g. sample ZTT with variations ['TES0.97','TES1.03']."""
   print '>>>\n>>> drawVariations("%s","%s")'%(filename,dirname)
   
-  file   = TFile(filename,'READ')
-  dir    = file.Get(dirname)
-  tag    = kwargs.get('tag',    ""      )
-  xmin   = kwargs.get('xmin',   None    )
-  xmax   = kwargs.get('xmax',   None    )
-  rmin   = kwargs.get('rmin',   None    )
-  rmax   = kwargs.get('rmax',   None    )
-  outdir = kwargs.get('outdir', OUT_DIR )
-  text   = kwargs.get('text',   ""      )
+  file     = TFile(filename,'READ')
+  dir      = file.Get(dirname)
+  tag      = kwargs.get('tag',      ""      )
+  xmin     = kwargs.get('xmin',     None    )
+  xmax     = kwargs.get('xmax',     None    )
+  rmin     = kwargs.get('rmin',     None    )
+  rmax     = kwargs.get('rmax',     None    )
+  outdir   = kwargs.get('outdir',   OUT_DIR )
+  position = kwargs.get('position', 'right' )
+  text     = kwargs.get('text',     ""      )
   ensureDirectory(outdir)
   if not isList(samples): samples = [samples]
   if not dir: print warning('drawVariations: did not find dir "%s"'%(dirname))
@@ -283,7 +286,7 @@ def drawVariations(filename,dirname,samples,variations,**kwargs):
       name = "%s_%s"%(sample,variation.lstrip('_'))
       hist = dir.Get(name)
       if not hist:
-        print warning('drawVariations: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre=">>>   ")
+        print warning('drawVariations: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre="   ")
         continue
       sampletitle = sample
       if variation in variation_dict:
@@ -295,7 +298,7 @@ def drawVariations(filename,dirname,samples,variations,**kwargs):
       hists.append(hist)
     
     if len(hists)!=len(variations):
-      print warning('drawVariations: number of hists (%d) != number variations (%d)'%(len(hists),len(variations)),pre=">>>   ")
+      print warning('drawVariations: number of hists (%d) != number variations (%d)'%(len(hists),len(variations)),pre="   ")
     
     var      = hists[0].GetXaxis().GetTitle()
     varname  = formatVariable(var)
@@ -313,7 +316,7 @@ def drawVariations(filename,dirname,samples,variations,**kwargs):
     exts       = ['pdf','png'] if args.pdf else ['png']
     
     plot = Plot(hists)
-    plot.plot(vartitle,title=title,text=text,ratio=ratio,linestyle=False,xmin=xmin,xmax=xmax,rmin=rmin,rmax=rmax)
+    plot.plot(vartitle,title=title,text=text,ratio=ratio,linestyle=False,xmin=xmin,xmax=xmax,rmin=rmin,rmax=rmax,position=position)
     plot.saveAs(canvasname,ext=exts)
     plot.close()
   
@@ -357,7 +360,7 @@ def drawUpDownVariation(filename,dirname,samples,shifts,**kwargs):
         hists  = [ histUp, hist, histDn ]
         for hist1, name in zip(hists,names):
           if not hist1:
-            print warning('drawUpDownVariation: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre=">>>   ")
+            print warning('drawUpDownVariation: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre="   ")
             skip = True; break
       else: # add samples
         hist, histUp, histDn = None, None, None
@@ -373,7 +376,7 @@ def drawUpDownVariation(filename,dirname,samples,shifts,**kwargs):
           subnames    = [ subsampleUp, subsample, subsampleDn ]
           for hist1, name in zip(subhists,subnames):
             if not hist1:
-              print warning('drawUpDownVariation: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre=">>>   ")
+              print warning('drawUpDownVariation: did not find "%s" in directory "%s"'%(name,dir.GetName()),pre="   ")
               skip = True; break
           if skip: break
           if hist:   hist.Add(subhist)
@@ -397,11 +400,11 @@ def drawUpDownVariation(filename,dirname,samples,shifts,**kwargs):
       hist.SetTitle("nominal")
       histUp.SetTitle("up variation")
       histDn.SetTitle("down variation")
-      canvasname = "%s/%s_%s_%s%s%s.png"%(outdir,sample,varname,dirname,tag,nshift)
+      canvasname = "%s/%s_%s_%s%s%s.png"%(outdir,sample.replace('_TES1.000','').replace('.','p'),varname,dirname,tag,nshift)
       exts       = ['pdf','png'] if args.pdf else ['png']
       
       plot = Plot(hists)
-      plot.plot(title=title,ratio=2,linestyle=False,xmin=xmin,xmax=xmax,errorbars=True,text=text)
+      plot.plot(vartitle,title=title,ratio=2,linestyle=False,xmin=xmin,xmax=xmax,errorbars=True,text=text)
       plot.saveAs(canvasname,ext=exts)
       plot.close()
   
@@ -409,13 +412,14 @@ def drawUpDownVariation(filename,dirname,samples,shifts,**kwargs):
 
 def formatFilename(filename):
     """Help function to format filename."""
-    filename = filename.replace("CMS_","").replace("ztt_","").replace("_mt_13TeV","").replace("_13TeV","")
+    filename = re.sub(r"(?:_[em]t)?(?:_DM\d+)?_13TeV",'',filename)
+    filename = filename.replace("CMS_",'').replace("ztt_",'').replace("_mt_13TeV",'').replace("_13TeV",'')
     return filename
 
-def formatCategory(category,shift="",var=""):
+def formatCategory(category,shift="",var="",channel=""):
     """Help function to format category."""
     if "TES" in category:
-      category = getShiftTitle(category)
+      category = category[:category.index('TES')].rstrip('_')+getShiftTitle(category)
     if category in category_dict:
       category = category_dict[category]
     else:
@@ -446,12 +450,22 @@ def getShiftTitle(string):
     """Help function to format title, e.g. '_TES0p970' -> '-3% TES'."""
     matches = re.findall(r"([a-zA-Z]+)(\d+[p\.]\d+)",string)
     if not matches: return ""
+    if len(matches)>1:
+      print warning('getShiftTitle: Found more than one match for shift: %s'%(matches))
     param, shift = matches[0]
     shift = float(shift.replace('p','.'))-1.
-    if not shift: return re.sub(r"_?[a-zA-Z]+\d+[p\.]\d+","",string)
+    if not shift: return "" #re.sub(r"_?[a-zA-Z]+\d+[p\.]\d+","",string)
     title = " %s%% %s"%(("%+.2f"%(100.0*shift)).rstrip('0').rstrip('.'),param)
     return title
-
+    
+def getDM(string):
+    """Help function to get DM from string."""
+    matches = re.findall(r"_?(DM\d+)",string)
+    if not matches: return ""
+    if len(matches)>1:
+      print warning('getDM: Found more than one match for shift: %s'%(matches))
+    return matches[0]
+    
 def ensureDirectory(dirname):
     """Make directory if it does not exist."""
     if not os.path.exists(dirname):
@@ -462,10 +476,12 @@ def ensureDirectory(dirname):
 def xlimits(var,DM):
     xmin, xmax = None, None
     if "m_2" in var:
-      xmin = 0.78 if '10' in DM else 0.20
-      xmax = 1.60 if '10' in DM else 1.50
+      xmin = 0.78 if DM=='DM10' else 0.78 if DM=='DM11' else 0.20
+      xmax = 1.70 if DM=='DM10' else 1.60 if DM=='DM11' else 1.50
     elif "m_vis" in var:
       xmax = 140 if 'ZTT' in var else None
+    elif "pt_2" in var:
+      xmin, xmax = 10, 150
     return xmin, xmax
     
 
@@ -489,14 +505,19 @@ def main():
       variation_dict[nametag.replace('_','')] = shifttag
       if (tes*100)%1==0 and -0.04<tes<0.03: testags.append(nametag)
       if (tes*100)%2==0 and -0.05<tes<0.05: tesvars.append(nametag.replace('_',''))
+    for nametag in ['_TES0.997','_TES0.998','_TES1.001','_TES1.003','_TES1.007']:
+      shifttag = getShiftTitle(nametag)
+      sample_dict["ZTT"+nametag] = sample_dict['ZTT']+shifttag
+      sample_dict["QCD"+nametag] = sample_dict['QCD']+shifttag
     
     tags     = args.tags
     era      = '13TeV'
     analysis = 'ztt'
     channels = [ 'mt' ]
     vars     = [ 'm_2', 'm_vis' ]
-    DMs      = [ 'DM0', 'DM1', 'DM10' ]
+    DMs      = [ 'DM0', 'DM1', 'DM10', 'DM11' ]
     if args.observables: vars = args.observables
+    if args.DMs:         DMs  = args.DMs
     doFR     = True #and False
     
     # SAMPLES
@@ -506,12 +527,19 @@ def main():
     stacksamples  = [
       'ZTT_TES1.000', 'ZL', 'ZJ', 'TTT', 'TTJ', 'W', 'STT', 'STJ', 'VV', 'QCD_TES1.000', 'data_obs'
     ]
+    extrastacksamples  = [
+      ('_TES0p997',['ZTT_TES0.997', 'ZL', 'ZJ', 'TTT', 'TTJ', 'STT', 'STJ', 'VV', 'data_obs', 'JTF']),
+      ('_TES0p998',['ZTT_TES0.998', 'ZL', 'ZJ', 'TTT', 'TTJ', 'STT', 'STJ', 'VV', 'data_obs', 'JTF']),
+      ('_TES1p001',['ZTT_TES1.001', 'ZL', 'ZJ', 'TTT', 'TTJ', 'STT', 'STJ', 'VV', 'data_obs', 'JTF']),
+      ('_TES1p003',['ZTT_TES1.003', 'ZL', 'ZJ', 'TTT', 'TTJ', 'STT', 'STJ', 'VV', 'data_obs', 'JTF']),
+      ('_TES1p007',['ZTT_TES1.007', 'ZL', 'ZJ', 'TTT', 'TTJ', 'STT', 'STJ', 'VV', 'data_obs', 'JTF']),
+    ]
     grouplist = [ (['^TT*','ST'],'TT','ttbar and single top'), ]
     stacksamples2 = [ s.replace('_TES1.000','') for s in stacksamples]
-    shifts   = [
-       "CMS_ztt_shape_dy_mt_13TeV",
-       "CMS_ztt_shape_mTauFake_13TeV", #_$CAT
-       "CMS_ztt_shape_jetTauFake_$CAT_13TeV",
+    shifts   = [ "",
+#        "CMS_ztt_shape_dy_mt_13TeV",
+#        "CMS_ztt_shape_mTauFake_$CAT_13TeV",
+#        "CMS_ztt_shape_jetTauFake_$CAT_13TeV",
 #        "CMS_ztt_shape_m_mt_13TeV",
 #        "CMS_ztt_shape_jes_13TeV",
       #"CMS_ztt_shape_jer_13TeV",
@@ -527,8 +555,12 @@ def main():
       for dirname in args.dirnames:
         xmin, xmax = xlimits(args.filename,dirname)
         app_dict   = {'ZTT':getShiftTitle(tag)}
+        DM         = getDM(args.filename) #dirname
+        var        = 'm_vis' if 'm_vis' in args.filename else 'm_2'
+        position   = 'x=0.58' if var=='m_vis' else 'x=0.63' if DM=='DM10' else 'x=0.06' if DM=='DM11' else 'x=0.60'
         outdirname = args.outdirname if args.outdirname else "postfit"
-        drawPrePostFit(args.filename,dirname,stacksamples2,xmin=xmin,xmax=xmax,apptitle=app_dict,tag=tag,outdir=outdirname,group=grouplist)
+        drawPrePostFit(args.filename,dirname,stacksamples2,xmin=xmin,xmax=xmax,position=position,
+                       apptitle=app_dict,tag=tag,outdir=outdirname,group=grouplist)
     else:
       for tag in tags:
         for channel in channels:
@@ -536,21 +568,23 @@ def main():
           for var in vars:
             if "_0p" in tag and var=='m_vis': continue
             if "_85" in tag and var=='m_2':   continue
+            if "_45" in tag and var=='m_2':   continue
             filename = "%s/%s_%s_tes_%s.inputs-%s%s.root"%("input",analysis,channel,var,era,tag)
             #filename = "%s/%s_%s_%s%s.input-%s.root"%(IN_DIR,analysis,channel,var,tag,era)
             for DM in DMs:
               if DM=='DM0' and 'm_2' in var: continue
+              if DM=='DM11' and "newDM" not in tag: continue
               xmin, xmax = xlimits(var+tag,DM)
-              ####filenameFits = "%s/shapes.%s_%s_%s-%s%s-%s.root"%(IN_DIR,analysis,channel,var,DM,tag,era)
-              drawUpDownVariation(filename,DM,shapesamples,shifts,xmin=xmin,xmax=xmax,tag=tag,text=DM)
-              drawStacks(filename,DM,stacksamples,shifts,xmin=xmin,xmax=xmax,tag=tag,group=grouplist)
-              ####drawPrePostFit(filenameFits,DM,stacksamples2,xmin=xmin,xmax=xmax,tag=tag,outdir="postfit")
+              position = 'x=0.58' if var=='pt_2' else'x=0.63' if DM=='DM10' and var=='m_2' else 'x=0.08' if DM=='DM11' and var=='m_2' else 'x=0.60'
+              drawUpDownVariation(filename,DM,shapesamples,shifts,xmin=xmin,xmax=xmax,tag=tag,text=DM,position=position)
+              #for extratag, stacklist in extrastacksamples:
+              #  drawStacks(filename,DM,stacklist,[""],xmin=xmin,xmax=xmax,tag=tag+extratag,group=grouplist)
               for nametag in testags:
                 samples = [ re.sub('ZTT_TES.*','ZTT%s'%nametag,s) for s in stacksamples ]
                 testag = tag+nametag.replace('.','p')
                 drawStacks(filename,DM,samples,xmin=xmin,xmax=xmax,tag=testag,group=grouplist)
-              drawVariations(filename,DM,'ZTT',tesvars,xmin=xmin,xmax=xmax,tag=tag)
-              drawVariations(filename,DM,'ZTT',tesvarssmall,xmin=xmin,xmax=xmax,rmin=0.92,rmax=1.08,tag=tag)
+              drawVariations(filename,DM,'ZTT',tesvars,xmin=xmin,xmax=xmax,tag=tag,position=position)
+              drawVariations(filename,DM,'ZTT',tesvarssmall,xmin=xmin,xmax=xmax,rmin=0.92,rmax=1.08,tag=tag,position=position)
           
     
     print ">>>\n>>> done\n"

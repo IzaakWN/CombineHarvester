@@ -22,6 +22,8 @@ description = '''This script makes datacards with CombineHarvester.'''
 parser = ArgumentParser(prog="LowMassDiTau_Harvester",description=description,epilog="Succes!")
 parser.add_argument( "-t", "--tag",         dest="tags", type=str, nargs='*', default=[ '' ], action='store',
                      metavar="TAG",         help="tags for a file" )
+parser.add_argument( '-e', "--extra-tag",   dest="extratag", type=str, default="", action='store',
+                     metavar="TAG",         help="extra tag for output files" )
 parser.add_argument( "-d", "--decayMode",   dest="DMs", type=str, nargs='*', default=[ ], action='store',
                      metavar="DECAY",       help="decay mode" )
 parser.add_argument( "-o", "-m", "--observable",  dest="observables", type=str, nargs='*', default=[ ], action='store',
@@ -65,6 +67,7 @@ PLOTS_DIR   = "./postfit"
 DM_label    = { 'DM0':      "h^{#pm} decay mode",
                 'DM1':      "h^{#pm}#pi^{0} decay mode",
                 'DM10':     "h^{#pm}h^{#mp}h^{#pm} decay mode",
+                'DM11':     "h^{#pm}h^{#mp}h^{#pm}#pi^{0} decay mode",
                 'all':      "all old decay modes",
                 'combined': "combined", }
 bin_dict    = { 1: 'DM0', 2: 'DM1', 3: 'DM10', 4: 'all', }
@@ -72,7 +75,8 @@ varlabel    = { 'm_2':   "m_{#tau}",
                 'm_vis': "m_{vis}",
                 'DM0':   "h^{#pm}",
                 'DM1':   "h^{#pm}#pi^{0}",
-                'DM10':  "h^{#pm}h^{#mp}h^{#pm}", }
+                'DM10':  "h^{#pm}h^{#mp}h^{#pm}",
+                'DM11':  "h^{#pm}h^{#mp}h^{#pm}#pi^{0}", }
 vartitle    = { 'm_2':   "hadronically decayed tau mass m_{#tau}",
                 'm_vis': "visible mass m_{vis}", }
 varshorttitle = { 'm_2':   "m_{#tau}",
@@ -453,7 +457,7 @@ def getTES(string):
     return float(matches[0].replace('p','.'))
     
 def columnize(list,ncol=2):
-    """Transpose into n columns"""
+    """Transpose lists into n columns, e.g. [1,2,3,4,5,6,7] -> [1,5,2,6,3,7,4] for ncol=2."""
     parts   = partition(list,ncol)
     collist = [ ]
     row     = 0
@@ -546,7 +550,7 @@ def getBBBList(channel,var,DM,process,**kwargs):
 def getChunkifiedBBBLists(channel,var,DM,process,**kwargs):
     """Get list of all BBB nuisance parameter for a proces, chunked into smaller overlapping list."""
     bbblist = getBBBList(channel,var,DM,process,**kwargs)
-    chunks  = chunkify(bbblist,8,complete=(len(bbblist)>8))
+    chunks  = chunkify(bbblist,9,complete=(len(bbblist)>9))
     #print chunks
     return chunks
   
@@ -566,7 +570,7 @@ def main():
     ensureDirectory(PLOTS_DIR)
     channels  = [ 'mt', ] #'et' ]
     vars      = [ 'm_2', 'm_vis' ]
-    DMs       = [ 'DM0', 'DM1', 'DM10' ] #3 ]
+    DMs       = [ 'DM0', 'DM1', 'DM10', 'DM11' ] #3 ]
     tags      = args.tags
     if args.DMs: DMs = args.DMs
     if args.observables: vars = observables
@@ -574,19 +578,21 @@ def main():
                   "CMS_ztt_shape_jetTauFake_13TeV", "CMS_ztt_rate_jetTauFake_13TeV", "CMS_ztt_ttjXsec_13TeV", ]
     compare   = [
       [ "CMS_ztt_zjXsec_13TeV", "CMS_ztt_ttjXsec_13TeV", "CMS_ztt_stXsec_13TeV", #"CMS_ztt_wNorm_13TeV",
-        "CMS_ztt_shape_jetTauFake_$CAT_13TeV", "CMS_ztt_rate_jetTauFake_13TeV",
-        "CMS_ztt_shape_dy_$CHANNEL_13TeV",
-        #"CMS_ztt_shape_m_$CHANNEL_13TeV",
-        "CMS_ztt_shape_mTauFake_13TeV", "CMS_ztt_rate_mTauFake_13TeV" ],
+        "CMS_ztt_shape_jetTauFake_$CAT_13TeV", "CMS_ztt_rate_jetTauFake_$CAT_13TeV",
+        "CMS_ztt_shape_dy_$CHANNEL_13TeV", #"CMS_ztt_shape_m_$CHANNEL_13TeV",
+        "CMS_ztt_shape_mTauFake_$CAT_13TeV", "CMS_ztt_rate_mTauFake_$CAT_13TeV" ],
     ]
     procsBBB  = [ 'JTF', 'TTT', 'ZTT' ] #'QCD', 'W' ]
     
     for tag in tags:
+      tag += args.extratag
       for channel in channels:
         for var in vars:
           if "_0p" in tag and var=='m_vis': continue
           if "_85" in tag and var=='m_2':   continue
+          if "_45" in tag and var=='m_2':   continue
           for DM in DMs:
+            if DM=='DM11' and "newDM" not in tag: continue
             title = "%s, %s"%(varshorttitle[var],DM_label[DM].replace("decay mode",''))
             
             ## CHECK single nuisances
@@ -596,7 +602,7 @@ def main():
             # COMPARE nuisances
             for parameters in compare:
               plotPostFitValues(channel,var,DM,*parameters,tag=tag,compareFD=False,title=title)
-          
+            
             # BIN-BY-BIN
             for process in procsBBB:
               bbblists = getChunkifiedBBBLists(channel,var,DM,process,tag=tag)

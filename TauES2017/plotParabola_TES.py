@@ -224,7 +224,7 @@ def plotParabola(channel,var,DM,**kwargs):
     legend = None
     if breakdown:
       height = 3*fontsize
-      x1, y1 = 0.94, 0.85
+      x1, y1 = 0.92, 0.67
       legend = TLegend(x1,y1,x1-0.22,y1-height)
       legend.SetFillStyle(0)
       legend.SetBorderSize(0)
@@ -401,13 +401,13 @@ def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_d
     for i, val in enumerate(list_dnll_left):
       if val <= (ymax_left):
         xmin_fit = round(list_tes_left[i],4)
-        print ">>> xmin_fit = %.3f (%2d,%.1f) is below NLL %.1f"%(xmin_fit,val,i,ymax_left)
+        print ">>> xmin_fit = %.3f (%2d,%3.1f) is below NLL %.1f"%(xmin_fit,val,i,ymax_left)
         break
     # |------|----min----|---<--|
     for i, val in reversed(list(enumerate(list_dnll_right))):
       if val <= (ymax_right):
         xmax_fit = round(list_tes_right[i],4)
-        print ">>> xmax_fit = %.3f (%2d,%.1f) is below NLL %.1f"%(xmax_fit,val,i,ymax_right)
+        print ">>> xmax_fit = %.3f (%2d,%3.1f) is below NLL %.1f"%(xmax_fit,val,i,ymax_right)
         break
     
     # FIT MAX WIDTH
@@ -417,8 +417,8 @@ def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_d
     tmin_fit = tes-abs(dtmin)*0.26
     tmax_fit = tes+abs(dtmax)*0.26
     wmin_fit, wmax_fit = sorted([ymax_left/(1000.*(dtmin**2)),ymax_right/(1000.*(dtmax**2))])
-    print ">>> tes=%.3f, tmin_fit=%.3f, tmin_fit=%.3f, bmid=xmin_fit+(xmax_fit-xmin_fit)/2=%.3f"%(tes,tmin_fit,tmax_fit,bmid)
-    print ">>> wmin_fit=%.3f, wmax_fit=%.3f"%(wmin_fit,wmax_fit)
+    #print ">>> tes=%.3f, tmin_fit=%.3f, tmin_fit=%.3f, bmid=xmin_fit+(xmax_fit-xmin_fit)/2=%.3f"%(tes,tmin_fit,tmax_fit,bmid)
+    #print ">>> wmin_fit=%.3f, wmax_fit=%.3f"%(wmin_fit,wmax_fit)
     
     # FIT Y RANGE (<ymax)
     #ymax_fit = 0.5
@@ -433,7 +433,7 @@ def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_d
     if bmax>xmax_fit: print ">>> Warning! setting bmin=%.3f -> %.3f=xmin_fit"%(bmax,xmax_fit); bmax = xmax_fit
     if bval<bmin or bmax<bval: print ">>> Warning! setting bval=%.3f -> %.3f=bmin+(bmin-bmax)/2"%(bval,(bmax+bmin)/2.); bval = (bmax+bmin)/2.
     if cval<cmin or cmax<cval: print ">>> Warning! setting cval=%.3f -> %.3f=cmin+(cmin-cmax)/2"%(cval,(cmax+cmin)/2.); cval = (cmax+cmin)/2.
-    print ">>> width   = %5s [%5s, %5s]"%(wval,wmin,wmax)
+    print ">>> width   = %5g [%5s, %5s]"%(wval,wmin,wmax)
     print ">>> tes     = %5s [%5s, %5s]"%(bval,bmin,bmax)
     print ">>> yoffset = %5s [%5s, %5s]"%(cval,cmin,cmax)
     if asymmetric:
@@ -468,9 +468,9 @@ def fitParabola(xmin,xmax,tes,list_tes_left,list_dnll_left,list_tes_right,list_d
     return para
     
 def asymmParabola(x,par):
-    """
-    f(x) = [0]*1000*(x-[1])**2+[2]  if x < [1]
-    f(x) = [3]*1000*(x-[1])**2+[2]  if x > [1]
+    """Asymmetric parabola:
+         f(x) = [0]*1000*(x-[1])**2+[2]  if x < [1]
+         f(x) = [3]*1000*(x-[1])**2+[2]  if x > [1]
     """
     if x[0]>par[1]:
       return par[0]*1000*(x[0]-par[1])**2+par[2]
@@ -986,13 +986,56 @@ def ensureList(arg):
   return arg if (isinstance(arg,list) or isinstance(arg,tuple)) else [arg]
 
 
+def finalCaluclation():
+  
+  measurements = {
+    'DM0':  [ None,                  (1.0078,0.0065,0.0065)],
+    'DM1':  [(0.9973,0.0025,0.0037), (0.9987,0.0047,0.0062)],
+    'DM10': [(0.9903,0.0048,0.0070), (1.0011,0.0070,0.0054)],
+    'DM11': [(0.9905,0.0111,0.0075), (0.9993,0.0098,0.0096)],
+  }
+  DMs = ['DM0','DM1','DM10','DM11']
+  measurements = [
+    [ None,                  (1.0078,0.0065,0.0065)],
+    [(0.9973,0.0025,0.0037), (0.9987,0.0047,0.0062)],
+    [(0.9903,0.0048,0.0070), (1.0011,0.0070,0.0054)],
+    [(0.9905,0.0111,0.0075), (0.9993,0.0098,0.0096)],
+  ]
+  channel = "mt"
+  ctext = tagToSelection("_mtlt50_0p10_45-6")
+  name  = "%s/measurement_tes_%s_final"%(PLOTS_DIR,channel)
+  entries = [varlabel[v] for v in ["m_2","m_vis"]]
+  
+  string = ""
+  for i, (DM, points) in enumerate(zip(DMs,measurements)):
+    string += "%10s "%(DM)
+    for j, point in enumerate(points):
+      if point==None:
+        string += "& %12s "%('--')
+      else:
+        tes, eup, elow = point
+        err = sqrt(int(1000*max(eup,elow))**2+5**2)/10.
+        tes = (int(tes*1000)-1000)/10.
+        string += "& $%4.1f\\pm%3.1f$ "%(tes,err)
+        newpoint = (tes,err,err)
+        points[j] = newpoint
+    string += "//\n"
+  print string
+  
+  cats = [varlabel[d] for d in DMs]
+  plotMeasurements(cats,measurements,xtitle="tau energy scale [%]",xmin=-3,xmax=+4,L=0.20,
+                   position="out",entries=entries,emargin=0.14,ctext=ctext,ctextsize=0.035,cposition='topright',canvas=name,exts=['png','pdf'])
+
+  
+
+
 def main(args):
     
     verbosity     = args.verbose
     ensureDirectory(PLOTS_DIR)
     channels      = [ 'mt', ] #'et' ]
     vars          = [ 'm_2', 'm_vis' ]
-    DMs           = [ 'DM0', 'DM1', 'DM10' ] #3 ]
+    DMs           = [ 'DM0', 'DM1', 'DM10', 'DM11' ] #3 ]
     tags          = args.tags
     breakdown     = args.breakdown
     multiDimFit   = args.multiDimFit
@@ -1007,10 +1050,13 @@ def main(args):
     cats    = [varlabel[d] for d in DMs]
     entries = [varlabel[v] for v in vars]
     fittag  = "_fit_asymm" if asymmetric else "_fit"
-   
+    
+    #finalCaluclation(); exit(0)
+    
     # LOOP over tags, channels, variables
     if parabola:
       for tag in tags:
+        tag += args.extratag
         for channel in channels:
           points, points_fit = [ ], [ ]
           for var in vars:
@@ -1044,13 +1090,13 @@ def main(args):
               points[i].append((tes,tesDown,tesUp))
               points_fit[i].append((tesf,tesfDown,tesfUp))
           
-#           if len(points)>1 and len(DMs)>2:
-#             print green("write results to file",pre="\n>>> ")
-#             DMs1 = DMs if "newDM" in tag else DMs[:3]
-#             filename = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,tag)
-#             writeMeasurement(filename,DMs,points)
-#             if args.fit:
-#               writeMeasurement(filename+fittag,DMs1,points_fit)
+          if len(points)>1 and len(DMs)>2 and not breakdown:
+            print green("write results to file",pre="\n>>> ")
+            DMs1 = DMs if "newDM" in tag else DMs[:3]
+            filename = "%s/measurement_tes_%s%s"%(PLOTS_DIR,channel,tag)
+            writeMeasurement(filename,DMs,points)
+            if args.fit:
+              writeMeasurement(filename+fittag,DMs1,points_fit)
     
     # SUMMARY plot
     if summary:
@@ -1089,13 +1135,16 @@ def main(args):
       for ctag in customSummary:
         print green("make customary summary plots for %s"%(ctag),pre="\n>>> ")
         channel = "mt"
+        DMtag   = "_newDM" if "newDM" in ctag else ""
+        DMs     = [ 'DM0', 'DM1', 'DM10', 'DM11' ] if "newDM" in ctag else [ 'DM0', 'DM1', 'DM10',]
+        cats    = [varlabel[d] for d in DMs]
         ftags   = [ "", fittag  ] if args.fit else [ "" ]
         mtaubintag = "_0p04" if "0p04" in ctag else "_0p10" if "0p10" in ctag else "_0p05"
         mvisbintag = "_45-5" if "45-5" in ctag else "_45-7" if "45-7" in ctag else ""
         for ftag in ftags:
-          canvas  = "%s/measurement_tes_%s%s%s%s%s"%(PLOTS_DIR,channel,"_differentCuts",mtaubintag,mvisbintag,ftag)
-          canvas1 = "%s/measurement_tes_%s%s%s%s"%(PLOTS_DIR,channel,"_mtlt50",mtaubintag,ftag)
-          canvas2 = "%s/measurement_tes_%s%s%s%s"%(PLOTS_DIR,channel,"_ZTTregion2",mvisbintag,ftag)
+          canvas  = "%s/measurement_tes_%s%s%s%s%s%s"%(PLOTS_DIR,channel,"_differentCuts",DMtag,mtaubintag,mvisbintag,ftag)
+          canvas1 = "%s/measurement_tes_%s%s%s%s%s"%(PLOTS_DIR,channel,"_mtlt50",DMtag,mtaubintag,ftag)
+          canvas2 = "%s/measurement_tes_%s%s%s%s%s"%(PLOTS_DIR,channel,"_ZTTregion2",DMtag,mvisbintag,ftag)
           ensureFile(canvas1+'.txt')
           ensureFile(canvas2+'.txt')
           measurements1 = readMeasurement(canvas1) # m_2
@@ -1181,6 +1230,8 @@ if __name__ == '__main__':
                          metavar="TAGS",        help="tags for the input file" )
     parser.add_argument( '-d', "--decayMode",   dest="DMs", type=str, nargs='+', default=[ ], action='store',
                          metavar="DECAY",       help="decay mode" )
+    parser.add_argument( '-e', "--extra-tag",   dest="extratag", type=str, default="", action='store',
+                         metavar="TAG",         help="extra tag for output files" )
     parser.add_argument( '-o', '-m', "--observable",  dest="observables", type=str, nargs='+', default=[ ], action='store',
                          metavar="VARIABLE",    help="name of observable for TES measurement" )
     parser.add_argument( '-r', "--shift-range", dest="shiftRange", type=str, default="0.940,1.060", action='store',

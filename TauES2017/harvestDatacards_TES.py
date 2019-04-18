@@ -48,10 +48,10 @@ shiftRange  = args.shiftRange
 parts = shiftRange.split(',')
 if len(parts)!=2 or not parts[0].replace('.','',1).isdigit() or not parts[1].replace('.','',1).isdigit():
   print '>>> Warning! Not a valid range: "%s". Please pass two comma-separated values.'%(shiftRange); exit(1)
-minshift    = float(parts[0])-1.
-maxshift    = float(parts[1])-1.
-steps       = 0.001
-tesshifts   = [ "%.3f"%(1+s*steps) for s in xrange(int(minshift/steps),int(maxshift/steps)+1)]
+tesmin    = float(parts[0])-1.
+tesmax    = float(parts[1])-1.
+steps     = 0.001
+tesshifts = [ "%.3f"%(1.+s*steps) for s in xrange(int(tesmin/steps),int(tesmax/steps)+1)]
 print tesshifts
 
 
@@ -229,11 +229,11 @@ def harvest(channel,var,DMs,**kwargs):
     if multiDimFit:
       for bin in bins:
         tesname = "tes_%s"%(bin)
-        tes = RooRealVar(tesname,tesname,1.+minshift,1.+maxshift);
+        tes = RooRealVar(tesname,tesname,1.+tesmin,1.+tesmax);
         tes.setConstant(True)
         pois.append(tes)
     else:
-      tes = RooRealVar('tes','tes',1.+minshift,1.+maxshift);
+      tes = RooRealVar('tes','tes',1.+tesmin,1.+tesmax); # TODO: RESET !!!
       tes.setConstant(True)
       pois = [tes]*len(bins)
         
@@ -247,7 +247,7 @@ def harvest(channel,var,DMs,**kwargs):
       print '>>>   bin "%s"...'%(bin)
       for proc in procs['morph']:
         #print ">>> bin %s, proc %s"%(bin,proc)
-        BuildRooMorphing(workspace, harvester, bin, proc, poi, "norm", True, verboseMorph, False, debugfile)
+        BuildRooMorphing(workspace, harvester, bin, proc, poi, 'norm', True, verboseMorph, False, debugfile)
     debugfile.Close()
     
     # EXTRACT PDFs
@@ -257,11 +257,11 @@ def harvest(channel,var,DMs,**kwargs):
     
     # NUISANCE PARAMETER GROUPS
     print green(">>> setting nuisance parameter groups...")
-    harvester.SetGroup( "all",      [ ".*"               ])
-    harvester.SetGroup( "bin",      [ ".*_bin_.*"        ])
-    harvester.SetGroup( "sys",      [ "^((?!bin).)*$"    ]) # everything except bin-by-bin
-    harvester.SetGroup( "lumi",     [ ".*_lumi"          ])
-    harvester.SetGroup( "JTF",      [ ".*_jetTauFake_.*" ])
+    harvester.SetGroup( 'all',      [ ".*"               ])
+    harvester.SetGroup( 'bin',      [ ".*_bin_.*"        ])
+    harvester.SetGroup( 'sys',      [ "^((?!bin).)*$"    ]) # everything except bin-by-bin
+    harvester.SetGroup( 'lumi',     [ ".*_lumi"          ])
+    harvester.SetGroup( 'JTF',      [ ".*_jetTauFake_.*" ])
     #harvester.RemoveGroup(  "syst", [ "lumi_.*" ])
     
     # PRINT
@@ -331,6 +331,7 @@ def main():
     for tag in args.tags:
       if "_0p" in tag: vars = [ v for v in vars if v!='m_vis' ]
       if "_85" in tag: vars = [ v for v in vars if v!='m_2'   ]
+      if "_45" in tag: vars = [ v for v in vars if v!='m_2'   ]
     
       for channel in channels:
         for var in vars:

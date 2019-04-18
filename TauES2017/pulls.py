@@ -275,13 +275,13 @@ def pullsVertical_noBonly(fileName):
     
     boxes = []
     
-    canvas = TCanvas("canvas", "Pulls", 950, 300+nbins*18)#nbins*20)
+    canvas = TCanvas("canvas", "Pulls", 720, 300+nbins*18)#nbins*20)
     canvas.cd()
     canvas.SetGrid(0, 1)
     canvas.SetTopMargin(0.01)
     canvas.SetRightMargin(0.01)
     canvas.SetBottomMargin(0.10)
-    canvas.SetLeftMargin(0.45)
+    canvas.SetLeftMargin(0.40)
     canvas.SetTicks(1, 1)
     
     for i, s in enumerate(content):
@@ -321,7 +321,7 @@ def pullsVertical_noBonly(fileName):
     box2.SetLineStyle(2)
     box2.SetLineColor(kOrange) # 800
     
-    leg = TLegend(0.02, 0.02, 0.5, 0.15)
+    leg = TLegend(0.01, 0.01, 0.3, 0.15)
     leg.SetTextSize(0.05)
     leg.SetBorderSize(0)
     leg.SetFillStyle(0)

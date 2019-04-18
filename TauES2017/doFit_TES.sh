@@ -12,12 +12,12 @@ VARS="m_2 m_vis"            # variables
 POI="tes"                   # parameter of interest
 DYXS="CMS_ztt_zjXsec_13TeV" # nuissance parameter of DY cross section
 WJXS="CMS_ztt_wNorm_13TeV"  # nuissance parameter of WJ normalization
-RANGE="0.9395,1.0605"       # range of TES
+RANGE="0.940,1.060"         # range of TES
 DYRANGE="0.50,1.20"         # range of DY cross section
 WJRANGE="0.50,1.50"         # range of WJ normalization
 SEED="123456"               # random seed
-CHECKS="0.960 0.970 0.980 0.990 1.000 1.010 1.020 1.030" # values to check pre-/post-fit
-POINTS="121"                # number of points for grid fit
+CHECKS="0.980 0.990 1.000 1.010 1.020" # values to check pre-/post-fit #0.960 0.970 0.980 0.990 1.000 1.010 1.020 1.030
+NPOINTS="121"               # number of points for grid fit
 TOL="0.2"                   # tolerance
 NTOYS="1000"                # number of toys
 TAGS="_mtlt50"              # tag in datacards (for selections)
@@ -38,11 +38,17 @@ MDF=0
 HARVESTER=1
 FIRST=0
 LAST=0
-while getopts "bBc:d:e:F:hiL:Mm:N:no:pPt:vs:" option; do case "${option}" in
+ASIMOV=0
+while getopts "AbBc:d:e:F:hiL:Mm:N:no:pPt:vs:" option; do case "${option}" in
+  A) ASIMOV=1;;
+  b) BREAKDOWN=1;;
+  B) BIASTEST=1;;
   c) CHECKS=`echo ${OPTARG} | tr ',' ' '`;;
   d) DMS=`echo ${OPTARG} | tr ',' ' '`;;
   F) FIRST=${OPTARG};;
   L) LAST=${OPTARG};;
+  h) HARVESTER=0;;
+  i) IMPACTS=1;;
   M) MDF=1;;
   m) VARS=`echo ${OPTARG} | tr ',' ' '`;;
   N) NTOYS=${OPTARG};;
@@ -50,10 +56,6 @@ while getopts "bBc:d:e:F:hiL:Mm:N:no:pPt:vs:" option; do case "${option}" in
   t) TAGS=`echo ${OPTARG} | tr ',' ' '`;;
   e) EXTRATAG=${OPTARG};;
   s) SEED=${OPTARG};;
-  b) BREAKDOWN=1;;
-  B) BIASTEST=1;;
-  h) HARVESTER=0;;
-  i) IMPACTS=1;;
   n) DOFIT=0;;
   p) POSTFIT=1;;
   v) VERBOSITY=1;;
@@ -69,20 +71,22 @@ COMB="combineCards" #../../../HiggsAnalysis/CombinedLimit/scripts/combineCards.p
 
 # OPTIONS
 set -o pipefail # for exit after tee
-[ $MDF -gt 0 ] && POINTS=61 && RANGE="0.9695,1.0305"
+[ $MDF -gt 0 ] && POINTS=61 && RANGE="0.970,1.030"
 POINTA=`echo $RANGE | grep -Po '\d+\.?\d*(?=,)'`
+CHECKS=`echo $CHECKS | grep -Po '\b(?<!#)\d+\.\d+\b' | xargs`
 VARS=`echo $VARS | grep -Po '\b(?<!#)\w+\b' | xargs`
 DMS=`echo $DMS | grep -Po '\b(?<!#)\w+\b' | xargs`
 SAVE="--saveSpecifiedNuis all" #${DYXS},${WJXS},CMS_eff_t,CMS_eff_m,CMS_ztt_shape_jetTauFake_13TeV,CMS_ztt_rate_jetTauFake_13TeV" #--saveWithUncertainties
-ALGO="--algo=grid --points ${POINTS}" # --saveWorkspace --saveFitResult
+ALGO="--algo=grid --points ${NPOINTS} --alignEdges=1" # --saveWorkspace --saveFitResult
 #POI_OPTS="--redefineSignalPOIs ${POI},${DYXS} --setParameterRanges ${POI}=${RANGE}:${DYXS}=${DYRANGE} -P tes --floatOtherPOIs 1 $SAVE"
 #POI_OPTS="--redefineSignalPOIs ${POI} --setParameterRanges ${POI}=${RANGE}:${DYXS}=${DYRANGE} --setParameters ${POI}=1,${DYXS}=1,r=1 --freezeParameters r --floatParameters ${DYXS} $SAVE"
 #POI_OPTS="--redefineSignalPOIs ${POI} --setParameters ${POI}=1,${DYXS}=1 --setParameterRanges ${POI}=${RANGE}:${DYXS}=${DYRANGE} --floatParameters ${DYXS} $SAVE"
-POI_OPTS="-P ${POI} --setParameterRanges ${POI}=${RANGE} -m 90" # --setParameters r=1 --freezeParameters r #--redefineSignalPOIs ${POI}
+POI_OPTS="-P ${POI} --setParameterRanges ${POI}=${RANGE} -m 90 --setParameters r=1 --freezeParameters r " # --setParameters r=1 --freezeParameters r #--redefineSignalPOIs ${POI}
 FIT_OPTS="--robustFit=1 --setRobustFitAlgo=Minuit2 --setRobustFitStrategy=0 --setRobustFitTolerance=${TOL}" #--preFitValue=1.
 XRTD_OPTS="--X-rtd FITTER_NEW_CROSSING_ALGO --X-rtd FITTER_NEVER_GIVE_UP --X-rtd FITTER_BOUND" #--X-rtd FITTER_DYN_STEP
 CMIN_OPTS="--cminFallbackAlgo Migrad,0:0.5 --cminFallbackAlgo Migrad,0:1.0 --cminPreScan" # --cminPreFit 1 --cminOldRobustMinimize 0"
 HARV_OPTS="--shift-range $RANGE -o $VARS -d $DMS "
+[ $ASIMOV -gt 0 ] && FIT_OPTS+=" -t -1"
 [ $MDF -gt 0 ] && HARV_OPTS+="--multiDimFit " && DMS="MDF"
 [ "$TAGS" ] && HARV_OPTS+="--tag $TAGS "
 [ $EXTRATAG ] && HARV_OPTS+="--extra-tag $EXTRATAG "
@@ -98,6 +102,7 @@ function main {
   ensureDir "postfit"
   ensureDir "impacts"
   ensureDir "biastest"
+  ensureDir "biastest/log"
   ensureDir "toys"
   echo
   
@@ -121,7 +126,8 @@ function main {
         [[ $var == "#"* ]] && continue
         [ $var == "m_vis" ] && [[ $tag == "_"*"_0p"* ]] && continue
         [ $var == "m_2"   ] && [[ $tag == *"_85"*    ]] && continue
-      
+        [ $var == "m_2"   ] && [[ $tag == *"_45"*    ]] && continue
+        
         # LOOP over DMS
         for dm in $DMS; do
             [[ $dm == "#"* ]] && continue
@@ -134,6 +140,7 @@ function main {
             DATACARD="${ANALYSIS}_${BINLABEL}.txt"
             WORKSPACE="${ANALYSIS}_${BINLABEL}.root"
             LOG="log/${ANALYSIS}_${BINLABEL}.log"
+            TOY_OPTS=""
             [ $HARVESTER -gt 0 -o $DOFIT -gt 0 ] && echo `date` > ../$LOG
             
             # COMBINE CARDS for MDF
@@ -159,23 +166,13 @@ function main {
                 continue
               fi 
               POINTS=`echo "${POINTS}^${NDMS}" | bc`
-              ALGO="--algo=grid --points $POINTS"
+              ALGO="--algo=grid --points $POINTS --alignEdges=1"
               POI_OPTS+="--setParameterRanges $RANGES_DM -m 90"
               if [ $LAST -gt 0 ]; then
                 ALGO+=" --firstPoint $FIRST --lastPoint $LAST"
                 BINLABEL+="_p${FIRST}-${LAST}"
                 [ $HARVESTER -lt 1 -a ! -e $DATACARD ] && echo ">>> $DATACARD does not exist (yet?)! Waiting 30 seconds..." && sleep 30
               fi
-              
-              echo $NDMS
-              echo $POINTS
-              echo $ALGO
-              echo $RANGES_DM
-              echo $POI_OPTS
-              echo $BINLABEL
-              echo $DATACARD
-              echo $DATACARD_DMS
-              
               [ $HARVESTER -gt 0 ] && { peval "combineCards.py $DATACARD_DMS > $DATACARD" 2>&1 | tee -a ../$LOG || exit 1; }
             fi
             
@@ -184,28 +181,47 @@ function main {
               peval "text2workspace.py $DATACARD -o $WORKSPACE" 2>&1 | tee -a ../$LOG || exit 1
             fi
             
+            # ASIMOV
+            if [ $ASIMOV -gt 0 ]; then
+              tes="1.000"
+              POI_OPTS3="--setParameters ${POI}=${tes} --freezeParameters ${POI} --expectSignal=1 -m 90"
+              PVAL=`percentage $tes`
+              TESLABEL=`echo "_TES${tes}" | sed 's/\./p/'`
+              [[ $BINLABEL == *"_asimov"* ]] && BINLABEL="${BINLABEL//_asimov/_asimov$TESLABEL}" || BINLABEL+="_asimov${TESLABEL}"
+              TOY="higgsCombine.${BINLABEL}.GenerateOnly.mH90.123456.root"
+              TOY_OPTS="--toysFile $TOY"
+              peval "combine -M GenerateOnly -n .$BINLABEL $WORKSPACE -t -1 --saveToys $POI_OPTS3" 2>&1 | tee -a ../$LOG || exit 1 #--toysFile $TOYS
+            fi
+            
             # COMBINE multidimensional fit
             if [ $DOFIT -gt 0 ]; then
-              peval "combine -M MultiDimFit -n .$BINLABEL $WORKSPACE $ALGO $POI_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL $SAVE" 2>&1 | tee -a ../$LOG || exit 1
-                        
-              # BREAKDOWN
-              if [ $BREAKDOWN -gt 0 ]; then
-                peval "combine -M MultiDimFit -n .bin-${BINLABEL} --freezeNuisanceGroups sys $WORKSPACE $ALGO $POI_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL" 2>&1 | tee -a ../$LOG || exit 1
-                peval "combine -M MultiDimFit -n .stat-${BINLABEL} --fastScan --freezeParameters all $WORKSPACE $ALGO $POI_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL" 2>&1 | tee -a ../$LOG || exit 1
-              fi
+              peval "combine -M MultiDimFit -n .$BINLABEL $WORKSPACE $ALGO $POI_OPTS $TOY_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL $SAVE" 2>&1 | tee -a ../$LOG || exit 1
+            fi
             
+            # BREAKDOWN
+            if [ $BREAKDOWN -gt 0 ]; then
+              POI_OPTS_ALL="${POI_OPTS//--freezeParameters r/--freezeParameters all}"
+              if [ $DOFIT -gt 0 ]; then
+                peval "combine -M MultiDimFit -n .$BINLABEL $WORKSPACE $ALGO $POI_OPTS $TOY_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL $SAVE" 2>&1 | tee -a ../$LOG || exit 1;
+              fi
+              peval "combine -M MultiDimFit -n .bin-${BINLABEL} --freezeNuisanceGroups sys $WORKSPACE $ALGO $POI_OPTS $TOY_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL" 2>&1 | tee -a ../$LOG || exit 1
+              peval "combine -M MultiDimFit -n .stat-${BINLABEL} $WORKSPACE $ALGO $POI_OPTS_ALL $TOY_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL --fastScan" 2>&1 | tee -a ../$LOG || exit 1
+              #peval "combine -M MultiDimFit -n .stat-${BINLABEL} --fastScan --freezeParameters all,r $WORKSPACE $ALGO $POI_OPTS $FIT_OPTS $XRTD_OPTS $CMIN_OPTS --saveNLL" 2>&1 | tee -a ../$LOG || exit 1
+              # WANRING!!! notice freeze r !
             fi
             
             # IMPACTS
             if [ $IMPACTS -gt 0 ]; then
               title "impacts"
-              peval "cp $WORKSPACE ../impacts/; cd ../impacts"
+              peval "cp $WORKSPACE ../impacts/"
+              [ "$TOY_OPTS" ] && peval "cp ${TOY_OPTS//* higgs/higgs} ../impacts/"
+              peval "cd ../impacts"
               IMPA_NAME="impacts_${BINLABEL}"
               OUTPUT_IMPA="${IMPA_NAME}.json"
               ILOG="postfit/${IMPA_NAME}.log"; echo `date` > ../$ILOG
-              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${POINTS} --redefineSignalPOIs ${POI} $POI_OPTS $XRTD_OPTS $CMIN_OPTS --doInitialFit" 2>&1 | tee -a ../$ILOG || exit 1
-              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${POINTS} --redefineSignalPOIs ${POI} $POI_OPTS $XRTD_OPTS $CMIN_OPTS --doFits --parallel 4" 2>&1 | tee -a ../$ILOG || exit 1
-              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${POINTS} --redefineSignalPOIs ${POI} $POI_OPTS $XRTD_OPTS $CMIN_OPTS -o $OUTPUT_IMPA" 2>&1 | tee -a ../$ILOG || exit 1
+              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${NPOINTS} --redefineSignalPOIs ${POI} $POI_OPTS $TOY_OPTS $XRTD_OPTS $CMIN_OPTS --doInitialFit" 2>&1 | tee -a ../$ILOG || exit 1
+              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${NPOINTS} --redefineSignalPOIs ${POI} $POI_OPTS $TOY_OPTS $XRTD_OPTS $CMIN_OPTS --doFits --parallel 4" 2>&1 | tee -a ../$ILOG || exit 1
+              peval "combineTool.py -M Impacts -n $BINLABEL -d $WORKSPACE $FIT_OPTS --points ${NPOINTS} --redefineSignalPOIs ${POI} $POI_OPTS $TOY_OPTS $XRTD_OPTS $CMIN_OPTS -o $OUTPUT_IMPA" 2>&1 | tee -a ../$ILOG || exit 1
               peval "plotImpacts.py -i $OUTPUT_IMPA -o ../postfit/$IMPA_NAME" 2>&1 | tee -a ../$ILOG || exit 1
               peval "convert -density 160 -trim ../postfit/${IMPA_NAME}.pdf[0] -quality 100 ../postfit/${IMPA_NAME}.png"
               peval "cd ../output"
@@ -238,9 +254,9 @@ function main {
                 
                 # DRAW
                 peval "cd .."
-                peval "python checkShapes_TES.py output/$SHAPES --postfit --out-dir postfit --dirname $dm -t $TESTAG" 2>&1 | tee -a $LOGT || exit 1
+                peval "python checkShapes_TES.py output/$SHAPES --postfit --pdf --out-dir postfit --dirname $dm -t $TESTAG" 2>&1 | tee -a $LOGT || exit 1
                 
-                ## PULLS
+                # PULLS
                 echo
                 peval "python $PULL --vtol=0.0001 output/$FITDIAGN | sed 's/[!,]/ /g' | tail -n +3 > $PULLT" 2>&1 | tee -a $LOGT || exit 1
                 peval "python pulls.py -b -f $PULLT -o postfit/pulls_${BINLABELT} -t '$var, $DMLABEL, $PVAL TES'" 2>&1 | tee -a $LOGT || exit 1
@@ -248,14 +264,14 @@ function main {
                 
               done
             fi
-          
+            
             # BIASTEST
             if [ $BIASTEST -gt 0 ]; then
               peval "cp $WORKSPACE ../toys/; cd ../toys"
               for tes in $CHECKS; do
                 [[ $tes == "#"* ]] && continue
                 header "Bias test for var $var for $dm in TES point $tes"
-              
+                
                 POI_OPTS3="--setParameters ${POI}=${tes} --freezeParameters ${POI} --expectSignal=1 -m 90"
                 PVAL=`percentage $tes`
                 TESLABEL=`echo "_TES${tes}" | sed 's/\./p/'`
@@ -263,9 +279,9 @@ function main {
                 BINLABELT="${BINLABEL}${TESLABEL}"
                 [ $NTOYS == -1 ] && BINLABELT+="_asimov" || BINLABELT+="_toys"
                 TOYS="higgsCombine.${BINLABELT}.GenerateOnly.mH90.${SEED}.root"
-                LOGT="biastest/${ANALYSIS}_${BINLABELT}_${SEED}.log"
+                LOGT="biastest/log/${ANALYSIS}_${BINLABELT}_${SEED}.log"
                 echo `date` > ../$LOGT
-              
+                
                 # TOYS
                 #peval "combine -M GenerateOnly -n .$BINLABELT $WORKSPACE --toysFrequentist -t $NTOYS --saveToys -s $SEED $POI_OPTS3" 2>&1 | tee -a ../$LOGT || exit 1
                 peval "combine -M GenerateOnly -n .$BINLABELT $WORKSPACE -t $NTOYS --saveToys -s $SEED $POI_OPTS3" 2>&1 | tee -a ../$LOGT || exit 1
@@ -364,7 +380,7 @@ function filterHash { # filter out words starting with hash #
 }
 
 function percentage { # print tes value as percentage
-  printf "%f%%" `echo "($1-1)*100" | bc` | sed 's/\.*0*%/%/';
+  printf "%+f%%" `echo "($1-1)*100" | bc` | sed 's/\.*0*%/%/';
 }
 
 function ensureDir {

@@ -5,7 +5,7 @@ import os, sys, re, glob
 import numpy, copy
 from array import array
 from argparse import ArgumentParser
-from plotParabola_TES import measureTES, plotMeasurements, writeMeasurement, readMeasurement
+from plotParabola_TES import measureTES, plotMeasurements, writeMeasurement, readMeasurement, tagToSelection, ensureDirectory, ensureTFile, ensureFile, green, warning, error
 from ROOT import gROOT, gDirectory, gPad, gStyle, Double, TFile, TCanvas, TLegend, TLatex, TH1F, TH2F, TF1, TGraph, TGraphErrors, TLine,\
                  kBlack, kBlue, kRed, kGreen, kYellow, kOrange, kMagenta, kTeal, kAzure
 from ROOT import RooRealVar, RooArgSet, RooGaussian
@@ -21,28 +21,37 @@ gStyle.SetLineStyleString(11,"50 100")
 argv = sys.argv
 description = '''This script makes plots for a bias test with toy and Asimov datasets.'''
 parser = ArgumentParser(prog="plot bias test",description=description,epilog="Succes!")
-parser.add_argument( "-t", "--tag",         dest="tags", type=str, nargs='+', default=[ '' ], action='store',
+parser.add_argument( '-t', "--tag",         dest="tags", type=str, nargs='+', default=[ ], action='store',
                      metavar="TAG",         help="tags for a file" )
-parser.add_argument( "-d", "--decayMode",   dest="DMs", type=str, nargs='+', default=[ ], action='store',
+parser.add_argument( '-d', "--decayMode",   dest="DMs", type=str, nargs='+', default=[ ], action='store',
                      metavar="DECAY",       help="decay mode" )
-parser.add_argument( "-m", "-o", "--observable",  dest="observables", type=str, nargs='*', default=[ ], action='store',
+parser.add_argument( '-m', "-o", "--observable",  dest="observables", type=str, nargs='*', default=[ ], action='store',
                      metavar="VARIABLE",    help="name of observable for TES measurement" )
-parser.add_argument( "-r", "--shift-range", dest="shiftRange", type=str, default="0.940,1.060", action='store',
+parser.add_argument( '-r', "--shift-range", dest="shiftRange", type=str, default="0.940,1.060", action='store',
                      metavar="RANGE",       help="range of TES shifts" )
-parser.add_argument( "-c", "--checkPoints", dest="checkPoints", type=float, nargs='+', default=[ ], action='store',
-                     metavar="POINTS",      help="check tes points (for post-fit and bias test)" )
-parser.add_argument( "-N", "--maxToys",     dest="maxToys", type=int, default=-1, action='store',
+#parser.add_argument( '-c', "--checkPoints", dest="checkPoints", type=float, nargs='+', default=[ ], action='store',
+#                     metavar="POINTS",      help="check tes points (for post-fit and bias test)" )
+parser.add_argument( '-N', "--maxToys",     dest="maxToys", type=int, default=-1, action='store',
                      metavar="NTOYS",       help="maximal number of toys (per file) to run over" )
-parser.add_argument( "-p", "--pdf",         dest="pdf", default=True, action='store_true',
+parser.add_argument( '-s', "--summary",     dest="summary", default=False, action='store_true',
+                                            help="make summary of measurements" )
+parser.add_argument( '-c', "--custom",      dest="customSummary", nargs='*', default=False, action='store',
+                                            help="make custom summary of measurements" )
+parser.add_argument( '-p', "--pdf",         dest="pdf", default=True, action='store_true',
                                             help="save plot as pdf as well" )
-parser.add_argument( "-v", "--verbose",     dest="verbose",  default=False, action='store_true',
+parser.add_argument( '-v', "--verbose",     dest="verbose",  default=False, action='store_true',
                                             help="set verbose" )
 args = parser.parse_args()
 
-DIR         = "./toys"
-PLOTS_DIR   = "./biastest"
-verbosity   = args.verbose
-observables = [o for o in args.observables if '#' not in o]
+DIR           = "./toys"
+PLOTS_DIR     = "./biastest"
+verbosity     = args.verbose
+observables   = [o for o in args.observables if '#' not in o]
+summary       = args.summary
+customSummary = args.customSummary
+if isinstance(customSummary,list):
+  if customSummary==[ ]:
+    customSummary = [ "_0p05" ]
 
 # CMS style
 year = 2017
@@ -57,12 +66,13 @@ CMS_lumi.lumi_13TeV   = "%s, %s fb^{-1}"%(year,lumi)
 tdrstyle.setTDRStyle()
 colors  = [ kBlack, kBlue, kRed, kGreen, kMagenta, kOrange, kTeal, kAzure+1, kYellow-3 ]
 
-bin_dict    = { 1: 'DM0', 2: 'DM1', 3: 'DM10', 4: 'all', }
+bin_dict    = { 1: 'DM0', 2: 'DM1', 3: 'DM10', 4: 'DM11', 5: 'all', }
 varlabel    = { 'm_2':   "m_{#tau}", #_{h}
                 'm_vis': "m_{vis}",
                 'DM0':   "h^{#pm}",
                 'DM1':   "h^{#pm}#pi^{0}",
-                'DM10':  "h^{#pm}h^{#mp}h^{#pm}", }
+                'DM10':  "h^{#pm}h^{#mp}h^{#pm}",
+                'DM11': "h^{#pm}h^{#mp}h^{#pm}#pi^{0}", }
 vartitle    = { 'm_2':   "tau mass m_{#tau}", #_{h}
                 'm_vis': "visible mass m_{vis}", }
 varshorttitle = { 'm_2':   "m_{#tau}",
@@ -118,16 +128,16 @@ def plotBiasTest(filenames,**kwargs):
     ymin, ymax = 0, max([h.GetMaximum() for h in hists])*1.32
     xtitle     = "measured tau energy scale"
     ytitle     = "frequentist toys" if freqToys else "toys"
-    xtitle2D   = "tau energy scale"
+    xtitle2D   = "true tau energy scale"
     ytitle2D   = xtitle
     ztitle2D   = ytitle
-    xtitleErr  = "tau energy scale"
-    ytitleErr  = "( measured tes - tes ) / tes [%]"
+    xtitleErr  = "true tau energy scale"
+    ytitleErr  = "( measured tes - true tes ) / tes [%]"
     doLog      = ymin and ymax/ymin>12
     
     # DRAW 2D & scatter
     if freqToys: tag = "-freq"+tag
-    lentry          = "tes_{obs.} = tes" #_{real}
+    lentry          = "#LTtes^{toy}_{obs.}#GT = tes_{true}" #_{real}
     lentryErr       = "tes = %5.3f_{-%5.3f}^{+%5.3f} (real data)"%(datates,datatesErrD,datatesErrU)
     canvasname      = "%s/biastest%s%s"%(PLOTS_DIR,tag,plottag)
     canvasname2D    = canvasname+"_2D"
@@ -135,7 +145,7 @@ def plotBiasTest(filenames,**kwargs):
     canvasnameErr   = canvasname+"_error"
     positionErr     = "left" if datates and datates>1.0 else "right"
     plotHist2D(hist2D,title=title,position="left",canvas=canvasname2D,xtitle=xtitle2D,ytitle=ytitle2D,ztitle=ztitle2D,option="COLZ",
-              line=(xmin,xmin,xmax-0.005,xmax-0.005),lentry=lentry,graph=graphs)
+               line=(xmin,xmin,xmax-0.005,xmax-0.005),lentry=lentry,graph=graphs)
     #plotScatter(tespointsToys,canvas=canvasnameScat,xtitle=xtitle2D,ytitle=ytitle2D,xmin=xmin,xmax=xmax,ymin=xmin,ymax=xmax,line=(xmin,xmin,xmax,xmax))
     plotErrorBand(graphErr,title=title,canvas=canvasnameErr,xtitle=xtitleErr,ytitle=ytitleErr,xmin=xmin,xmax=xmax-0.01,ymin=yminErr,ymax=ymaxErr,entry="bias in toys",
                   line=errlines)
@@ -805,6 +815,7 @@ def plotHist2D(hist,**kwargs):
     hist.GetXaxis().SetTitleOffset(1.04)
     hist.GetYaxis().SetTitleOffset(1.12)
     hist.GetZaxis().SetTitleOffset(1.25)
+    hist.GetXaxis().SetNdivisions(508)
     hist.GetZaxis().CenterTitle(True)
     hist.GetXaxis().SetTitle(xtitle)
     hist.GetYaxis().SetTitle(ytitle)
@@ -862,154 +873,6 @@ def plotHist2D(hist,**kwargs):
     
 
 
-def plotToys(channel,var,DM,**kwargs):
-    """Plot toy dataset."""
-    if DM=='DM0' and 'm_2' in var: return
-    print green("\n>>> plot toys for %s, %s"%(DM, var))
-    
-    title      = kwargs.get('title',      ""          )
-    tag        = kwargs.get('tag',        ""          )
-    plottag    = kwargs.get('plottag',    ""          )
-    seed       = kwargs.get('seed',       "123456"    )
-    indices    = kwargs.get('indices',    range(1,5)  )
-    filename   = kwargs.get('filename',   ""          )
-    xmin       = kwargs.get('xmin',         0         )
-    xmax       = kwargs.get('xmax',       100         )
-    nbins      = kwargs.get('nbins',      100         )
-    if not filename:
-      filename   = '%s/higgsCombine.%s_%s-%s%s-13TeV_toys.GenerateOnly.mH90.%s.root'%(DIR,channel,var,DM,tag,seed)
-    
-    print '>>>   file "%s"'%(filename)
-    file       = ensureTFile(filename)
-    #tree       = file.Get('limit')
-    
-    xvar       = RooRealVar("CMS_th1x","CMS_th1x",xmin,xmax)
-    
-    for i in indices:
-      toykey     = "toy_%s"%i
-      toyname    = "asimov" if "asimov" in i else toyname
-      canvasname = "%s/%s-%s_%s%s%s"%(PLOTS_DIR,toyname,var,DM,tag,plottag)
-      xframe     = xvar.frame(Title("Pseudo dataset"))
-      data       = file.Get('toys/%s'%toykey)
-      #data2     = gauss.generate(RooArgSet(x),10000) # RooDataSet
-      #data.plotOn(frame)
-      data.plotOn(xframe,Binning(nbins))
-      
-      canvas = TCanvas("canvas","canvas",100,100,800,600)
-      gPad.SetLeftMargin(0.15); gPad.SetRightMargin(0.02)
-      xframe.GetYaxis().SetLabelOffset(0.008)
-      xframe.GetYaxis().SetTitleOffset(1.6)
-      xframe.GetYaxis().SetTitleSize(0.045)
-      xframe.GetXaxis().SetTitleSize(0.045)
-      xframe.Draw()
-      canvas.SaveAs(canvasname+".png")
-      canvas.Close()
-    
-
-
-
-
-
-def plotMorph(filenames,graphname,**kwargs):
-    """Plot interpolated DY yields morphed ZTT shape."""
-    print green('\n>>> plot morph for "%s"'%(kwargs.get('tag',"")))
-    
-    title         = kwargs.get('title',      ""                       )
-    text          = kwargs.get('text',       ""                       )
-    entries       = kwargs.get('entries',    ""                       )
-    tag           = kwargs.get('tag',        ""                       )
-    plottag       = kwargs.get('plottag',    ""                       )
-    ytitle        = kwargs.get('ytitle',     ""                       )
-    xtitle        = kwargs.get('xtitle',     ""                       )
-    legend        = kwargs.get('legend',     entries or title or text )
-    DIR           = kwargs.get('dir',        PLOTS_DIR                )
-    canvasname    = "%s/%s%s%s"%(DIR,graphname,tag,plottag)
-    xmin, xmax    = 0.94, 1.06
-    ymin, ymax    = None, None
-    
-    # GET GRAPHS
-    graphs = [ ]
-    for filename in filenames:
-      file  = TFile(filename)
-      graph = file.Get(graphname)
-      graphs.append(graph)
-      dum, ymin, dum, ymax  = findTGraphExtrema(graph,ymin=ymin,ymax=ymax)
-    print ymin, ymax
-    ymin *= 0.98
-    ymax *= 1.06
-    print ymin, ymax
-    
-    # DRAW
-    canvas = TCanvas("canvas","canvas",100,100,900,600)
-    canvas.SetFillColor(0)
-    canvas.SetBorderMode(0)
-    canvas.SetFrameFillStyle(0)
-    canvas.SetFrameBorderMode(0)
-    canvas.SetTopMargin(  0.08 ); canvas.SetBottomMargin( 0.13 )
-    canvas.SetLeftMargin( 0.15 ); canvas.SetRightMargin(  0.04 )
-    canvas.SetTickx(0)
-    canvas.SetTicky(0)
-    canvas.SetGrid()
-    canvas.cd()
-    
-    if legend:
-      textsize   = 0.050
-      x1, width  = 0.18, 0.25
-      y1, height = 0.88, textsize*1.08*len([o for o in zip(entries,graphs)+[title,text] if o])
-      legend = TLegend(x1,y1,x1+width,y1-height)
-      legend.SetTextSize(textsize)
-      legend.SetBorderSize(0)
-      legend.SetFillStyle(0)
-      legend.SetFillColor(0)
-      if title:
-        legend.SetTextFont(62)
-        legend.SetHeader(title) 
-      legend.SetTextFont(42)
-      legend.SetTextSize(textsize*0.90)
-    
-    frame = canvas.DrawFrame(xmin,ymin,xmax,ymax)
-    frame.GetYaxis().SetTitleSize(0.060)
-    frame.GetXaxis().SetTitleSize(0.060)
-    frame.GetXaxis().SetLabelSize(0.050)
-    frame.GetYaxis().SetLabelSize(0.048)
-    frame.GetXaxis().SetLabelOffset(0.010)
-    frame.GetXaxis().SetTitleOffset(1.00)
-    frame.GetYaxis().SetTitleOffset(1.27)
-    frame.GetXaxis().SetNdivisions(508)
-    frame.GetXaxis().SetTitle(xtitle)
-    frame.GetYaxis().SetTitle(ytitle)
-    
-    for i, graph in enumerate(graphs):
-      color = colors[i%len(colors)]
-      graph.SetLineColor(color)
-      graph.SetMarkerColor(color)
-      graph.SetLineWidth(2)
-      graph.SetMarkerSize(0.75)
-      graph.SetLineStyle(1)
-      graph.SetMarkerStyle(20)
-      graph.Draw('LEPSAME')
-      if legend and i<len(entries):
-        legend.AddEntry(graph, entries[i], 'lp')
-    
-    if legend:
-      if text:
-        legend.AddEntry(0,text,'')
-      legend.Draw()
-    
-    CMS_lumi.relPosX = 0.12
-    CMS_lumi.CMS_lumi(canvas,13,0)
-    gPad.SetTicks(1,1)
-    gPad.Modified()
-    frame.Draw('SAMEAXIS')
-    
-    canvas.SaveAs(canvasname+".png")
-    if args.pdf: canvas.SaveAs(canvasname+".pdf")
-    canvas.Close()
-    for graph in graphs:
-      gDirectory.Delete(graph.GetName())
-    
-
-
 def findTGraphExtrema(graphs,ymin=None,ymax=None):
     """Get full y-range of a given TGraph object."""
     xmin, xmax = None, None
@@ -1053,24 +916,6 @@ def partition(list,nparts):
       #print nnew
     return parts
     
-def green(string,**kwargs):
-  return kwargs.get('pre',"")+"\x1b[0;32;40m%s\033[0m"%string
-  
-def ensureDirectory(dirname):
-  """Make directory if it does not exist."""
-  if not os.path.exists(dirname):
-      os.makedirs(dirname)
-      print ">>> made directory %s"%dirname
-  
-def ensureTFile(filename,**kwargs):
-  """Open TFile and make sure if that it exists."""
-  if not os.path.exists(filename):
-    print '>>> Warning! getTFile: File "%s" does not exist!'%(filename)
-  file = TFile(filename)
-  if not file:
-    print '>>> Warning! getTFile: Could not open file "%s"!'%(filename)
-  return file
-  
 def getTES(string):
     matches = re.findall("_TES(\dp\d*)",string)
     if not matches:
@@ -1094,12 +939,13 @@ def getShiftTitle(string):
     """Help function to format title, e.g. '_TES0p970' -> '-3% TES'."""
     matches = re.findall(r"([a-zA-Z]+)(\d+[p\.]\d+)",string)
     if not matches: return ""
+    if len(matches)>1:
+      print warning('getShiftTitle: Found more than one match for shift: %s'%(matches))
     param, shift = matches[0]
     shift = float(shift.replace('p','.'))-1.
-    if not shift: return ""
+    if not shift: return "" #re.sub(r"_?[a-zA-Z]+\d+[p\.]\d+","",string)
     title = " %s%% %s"%(("%+.2f"%(100.0*shift)).rstrip('0').rstrip('.'),param)
     return title
-    
 
 
 def main():
@@ -1118,7 +964,7 @@ def main():
     
     (minshift,maxshift,steps) = ( -0.04, 0.04, 0.01 )
     tesshifts = [ s*steps for s in xrange(int(minshift/steps),int(maxshift/steps)+1) ]
-    if args.checkPoints: tesshifts = args.checkPoints
+    #if args.checkPoints: tesshifts = args.checkPoints
     testags   = [ ]
     for tes in tesshifts:
       nametag  = "_TES%.3f"%(1+tes)
@@ -1126,100 +972,116 @@ def main():
       #variation_dict[nametag.replace('_','')] = shifttag
       if (tes*100)%1==0: testags.append(nametag.replace('.','p'))
     
-#     for tag in tags:
-#       for channel in channels:
-#         points = [ ]
-#         for DM in DMs:
-#           pointsDM = [ ]
-#           for var in vars:
-#             if "_0p"    in tag and var=='m_vis': continue
-#             if "_85"    in tag and var=='m_2':   continue
-#             if "_restr" in tag and var=='m_2':   continue
-#             if DM=='DM0' and 'm_2' in var:
-#               pointsDM.append(None)
-#               continue
-#             
-#             title   = "%s, %s"%(varlabel[var],varlabel[DM])
-#             plottag = "-%s_%s%s"%(var,DM,tag)
-#             datafilename = 'output/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(channel,var,DM,tag)
-#             
-#             # BIAS TEST
-#             #filenames  = [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toysFreq.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed) for t in testags ]
-#             filenames  = [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toys.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed) for t in testags ]
-#             filenames += [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimov.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t)       for t in testags ]
-#             #filenames += [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimovFreq.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t)   for t in testags ]
-#             tes, tesDown, tesUp = plotBiasTest(filenames,title=title,tag=plottag,data=datafilename)
-#             
-#             # MEASUREMENTS
-#             pointsDM.append((tes,tesDown,tesUp))
-#             
-#             # PARABOLA
-#             filenamesSets = [ (t,['output/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(channel,var,DM,tag),
-#                                   '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimov.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t),
-#                                   '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toys.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed)]) for t in ['_TES0p990','_TES1p000','_TES1p010','_TES1p020'] ]
-#             for testag, filenamesP in filenamesSets:
-#               plottestag = plottag+testag
-#               tesvalue   = getTES(testag)
-#               testitle   = "%s, tes = %s"%(title,tesvalue) if testag else tesvalue
-#               plotParabola(filenamesP,title=testitle,tag=plottestag)
-#             
-#             #### TOY DATASET
-#             ###seed = "123456"
-#             ###indices  = [ 'asimov' ] #range(1,5)
-#             ###filename = '%s/higgsCombine.%s_%s-%s%s-13TeV_toys.GenerateOnly.mH90.%s.root'%(DIR,channel,var,DM,tag,seed)
-#             ###for atag in [ "_TES1p020_asimov", "_TES1p020_asimov_noFreq" ]:
-#             ###  #filename = '%s/higgsCombine.%s.GenerateOnly.mH90.%s.root'%(DIR,tag,seed)
-#             ###  filename = '%s/higgsCombine.%s_%s-%s%s-13TeV%s.GenerateOnly.mH90.%s.root'%(DIR,channel,var,DM,tag,atag,seed)
-#             ###  plotToys(var,DM,tag=tag+atag,indices=indices,filename=filename,xmax=10,nbins=10)
-#             ####plotToys(var,DM,tag=tag,indices=indices) #,filename=filename)
-#           
-#           points.append(pointsDM)
-#         
-#         filename = "%s/measurement_tes_%s%s_toys"%("plots",channel,tag)
-#         writeMeasurement(filename,DMs,points)
+    # PLOT
+    if not (summary or customSummary):
+      for tag in tags:
+        for channel in channels:
+          points = [ ]
+          for DM in DMs:
+            pointsDM = [ ]
+            for var in vars:
+              if "_0p"    in tag and var=='m_vis':  continue
+              if "_45"    in tag and var=='m_2':    continue
+              if "_85"    in tag and var=='m_2':    continue
+              if "_restr" in tag and var=='m_2':    continue
+              if DM=='DM11' and "newDM" not in tag: continue
+              if DM=='DM0' and 'm_2' in var:
+                pointsDM.append(None)
+                continue
+              
+              title   = "%s, %s"%(varlabel[var],varlabel[DM])
+              plottag = "-%s_%s%s"%(var,DM,tag)
+              datafilename = 'output/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(channel,var,DM,tag)
+              
+              # BIAS TEST
+              #filenames  = [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toysFreq.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed) for t in testags ]
+              filenames  = [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toys.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed) for t in testags ]
+              filenames += [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimov.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t)       for t in testags ]
+              #filenames += [ '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimovFreq.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t)   for t in testags ]
+              tes, tesDown, tesUp = plotBiasTest(filenames,title=title,tag=plottag,data=datafilename)
+              
+              # MEASUREMENTS
+              pointsDM.append((tes,tesDown,tesUp))
+              
+              # PARABOLA
+              filenamesSets = [ (t,['output/higgsCombine.%s_%s-%s%s-13TeV.MultiDimFit.mH90.root'%(channel,var,DM,tag),
+                                    '%s/higgsCombine.%s_%s-%s%s-13TeV%s_asimov.MultiDimFit.mH90.root'%(DIR,channel,var,DM,tag,t),
+                                    '%s/higgsCombine.%s_%s-%s%s-13TeV%s_toys.MultiDimFit.mH90.%s.root'%(DIR,channel,var,DM,tag,t,seed)]) for t in ['_TES0p990','_TES1p000','_TES1p010','_TES1p020'] ]
+              for testag, filenamesP in filenamesSets:
+                plottestag = plottag+testag
+                tesvalue   = getTES(testag)
+                testitle   = "%s, tes = %.3f"%(title,tesvalue) if testag else tesvalue
+                plotParabola(filenamesP,title=testitle,tag=plottestag)
+            
+            points.append(pointsDM)
+          
+          filename = "%s/measurement_tes_%s%s_toys"%("plots",channel,tag)
+          writeMeasurement(filename,DMs,points)
     
-    for tag in tags:
-      for channel in channels:
-        if len(vars)==2 and len(DMs)>=3:
-          canvas  = "%s/measurement_tes_%s%s_toys"%("plots",channel,tag)
-          measurements = readMeasurement(canvas)
-          if "_0p" in tag: # add m_vis from measurement tagged without "_0p05"
-            canvas2 = re.sub(r"_0p\d+","",canvas)
-            measurements2 = readMeasurement(canvas2)
-            for points,points2 in zip(measurements,measurements2):
-              points.append(points2[1])
-          if "_restr" in tag: # add m_2 from measurement tagged with "_0p05"
-            canvas2 = canvas.replace("_restr","_0p05")
-            measurements2 = readMeasurement(canvas2)
-            for points, points2 in zip(measurements,measurements2):
-              points = points.insert(0,points2[0])
-          print measurements
-          plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
+    # SUMMARY plot
+    if summary:
+      for tag in tags:
+        for channel in channels:
+          if len(vars)==2 and len(DMs)>=3:
+            print green("make summary plot for %s"%(tag),pre="\n>>> ")
+            canvas  = "%s/measurement_tes_%s%s_toys"%("plots",channel,tag)
+            measurements = readMeasurement(canvas)
+            if "_0p" in tag: # add m_vis from measurement tagged without "_0p05"
+              canvas2 = re.sub(r"_0p\d+","",canvas)
+              measurements2 = readMeasurement(canvas2)
+              for points,points2 in zip(measurements,measurements2):
+                points.append(points2[1])
+            if "_restr" in tag: # add m_2 from measurement tagged with "_0p05"
+              canvas2 = canvas.replace("_restr","_0p05")
+              measurements2 = readMeasurement(canvas2)
+              for points, points2 in zip(measurements,measurements2):
+                points = points.insert(0,points2[0])
+            print measurements
+            plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
     
-    if len(vars)==2 and len(DMs)>=3:
-      channel = "mt"
-      canvas  = "%s/measurement_tes_%s%s"%("plots",channel,"_differentCuts_toys")
-      canvas1 = "%s/measurement_tes_%s%s"%("plots",channel,"_mtlt50_0p05_toys")
-      canvas2 = "%s/measurement_tes_%s%s"%("plots",channel,"_ZTTregion2_toys")
-      measurements1 = readMeasurement(canvas1) # m_2
-      measurements2 = readMeasurement(canvas2) # m_vis
-      for points1, points2 in zip(measurements1,measurements2):
-        points1 = points1.append(points2[1])
-      writeMeasurement(canvas,DMs,measurements1)
-      plotMeasurements(cats,measurements1,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
+    ###if len(vars)==2 and len(DMs)>=3:
+    ###  channel = "mt"
+    ###  canvas  = "%s/measurement_tes_%s%s"%("plots",channel,"_differentCuts_toys")
+    ###  canvas1 = "%s/measurement_tes_%s%s"%("plots",channel,"_mtlt50_0p05_toys")
+    ###  canvas2 = "%s/measurement_tes_%s%s"%("plots",channel,"_ZTTregion2_toys")
+    ###  measurements1 = readMeasurement(canvas1) # m_2
+    ###  measurements2 = readMeasurement(canvas2) # m_vis
+    ###  for points1, points2 in zip(measurements1,measurements2):
+    ###    points1 = points1.append(points2[1])
+    ###  writeMeasurement(canvas,DMs,measurements1)
+    ###  plotMeasurements(cats,measurements1,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.20,position="out",entries=entries,canvas=canvas)
     
-    ###for var in vars:
-    ###  tag = "_m_2_ZTTregion2_0p05"
-    ###  filenames  = ["debug/morph_debug_mt_m_2_ZTTregion2_0p05_old.root", "debug/morph_debug_mt_m_2_ZTTregion2_0p05_oldJobFix.root", "debug/morph_debug_mt_m_2_ZTTregion2_0p05.root"]
-    ###  if var=="m_vis":
-    ###    tag = "_m_vis_ZTTregion2"
-    ###    filenames = [f.replace("_0p05","").replace("_m_2_","_m_vis_") for f in filenames]
-    ###  for DM in DMs:
-    ###    if var=="m_2" and DM=="DM0": continue
-    ###    graphname = "interp_rate_%s_ZTT"%(DM)
-    ###    title = "%s, %s"%(varlabel[var],varlabel[DM])
-    ###    plotMorph(filenames,graphname,tag=tag,title=title,entries=["randomly failing jobs","without failing jobs","without failing jobs + extensions"],xtitle="tau energy scale",ytitle="interpolated DY yield",dir="./plots")
-
+    # CUSTOMARY summary plot
+    if customSummary and len(vars)==2 and len(DMs)>=3:
+      for ctag in customSummary:
+        print green("make customary summary plots for %s"%(ctag),pre="\n>>> ")
+        channel = "mt"
+        outdir  = "plots"
+        mtaubintag = "_0p04" if "0p04" in ctag else "_0p10" if "0p10" in ctag else "_0p05"
+        mvisbintag = "_45-5" if "45-5" in ctag else "_45-7" if "45-7" in ctag else ""
+        canvas  = "%s/measurement_tes_%s%s%s%s_toys"%(outdir,channel,"_differentCuts",mtaubintag,mvisbintag)
+        canvas1 = "%s/measurement_tes_%s%s%s_toys"%(outdir,channel,"_mtlt50",mtaubintag)
+        canvas2 = "%s/measurement_tes_%s%s%s_toys"%(outdir,channel,"_ZTTregion2",mvisbintag)
+        ensureFile(canvas1+'.txt')
+        ensureFile(canvas2+'.txt')
+        measurements1 = readMeasurement(canvas1) # m_2
+        measurements2 = readMeasurement(canvas2) # m_vis
+      
+        # CHECK
+        if len(measurements1)<3:
+          error('Cannot make measurement summary plot with different cuts: "%s.txt" does not have enough measurements!'%(canvas1))
+        if len(measurements2)<3 or any(len(m)<1 for m in measurements2):
+          error('Cannot make measurement summary plot with different cuts: "%s.txt" does not have enough measurements!'%(canvas2))
+      
+        measurements = [ ]
+        for points1, points2 in zip(measurements1,measurements2): # loop over DMs
+          points = [points1[0],points2[-1]]
+          measurements.append(points)
+        writeMeasurement(canvas,DMs,measurements)
+        ctext = tagToSelection("differentCuts"+mvisbintag)
+        plotMeasurements(cats,measurements,xtitle="tau energy scale",xmin=0.97,xmax=1.04,L=0.17,
+                             position="out",entries=entries,emargin=0.14,ctext=ctext,ctextsize=0.035,cposition='topright',canvas=canvas,exts=['png','pdf'])
+    
 
 if __name__ == '__main__':
     main()

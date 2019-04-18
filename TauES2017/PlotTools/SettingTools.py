@@ -27,7 +27,10 @@ verbosityPlotTools      = 1
 verbosityVariableTools  = 1
 verbositySelectionTools = 1
 verbosityWJ             = 1
+blind_dict              = { }
 doFakeRate              = False
+doFakeFactor            = False
+doQCD                   = False
 # ROOT.gROOT.SetBatch(ROOT.kTRUE)
 # gErrorIgnoreLevel = kInfo;
 
@@ -57,8 +60,10 @@ def ensureTFile(filename,option='READ',**kwargs):
 def ensureDirectory(dirname):
     """Make directory if it does not exist."""
     if not os.path.exists(dirname):
-        os.makedirs(dirname)
-        print ">>> made directory " + dirname
+      os.makedirs(dirname)
+      print '>>> made directory "%s"'%(dirname)
+      if not os.path.exists(dirname):
+        print '>>> failed to make directory "%s"'%(dirname)
     return dirname
 
 def getKey(kwargs,key,default=None):
@@ -78,9 +83,7 @@ def setVerbose(*args,**kwargs):
         verbosityVariableTools  = 2
         verbositySelectionTools = 2
         verbosityWJ             = 2
-
-
-
+    
 def getVerbosity(*args):
     """Set verbosity level of each module."""
     verbosities = [ ]
